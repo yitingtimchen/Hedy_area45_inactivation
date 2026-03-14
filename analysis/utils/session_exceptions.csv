@@ -1,0 +1,3 @@
+session_id,exception_timestamp,exception_flag,exception_note
+596273,2026-02-27 13:50:58.559,room_entry,"Vets had to enter the room to evaluate Leakey during the session. The pair was distracted for a while."
+626219,2026-03-11 14:11:47.696,camera_loss,"Front camera died approximately 40 minutes into recording."

@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+
+# Derived data and generated results
+data/derived/
+results/
+
+# Large source media
+data/raw/videos/
+data/raw/videos_720p/
+
+# Local environment files
+.DS_Store
+Thumbs.db
+
+# Blinding key
+data/raw/session_key/Sessions name encoding.xlsx
