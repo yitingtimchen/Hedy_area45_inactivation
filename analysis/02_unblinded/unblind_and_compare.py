@@ -20,6 +20,69 @@ DOCS_ROOT = ROOT / "docs" / "unblinded"
 NS = {"a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 VET_ENTRY_SESSION_ID = "596273"
 
+GROOM_COMPONENT_METRICS = [
+    "groom_give_pct_session",
+    "groom_receive_pct_session",
+    "groom_total_pct_session",
+    "groom_duration_net_receive_minus_give_pct_session",
+    "groom_duration_reciprocity_0to1",
+]
+
+GROOM_BOUT_COMPONENT_METRICS = [
+    "groom_give_resolved_bouts",
+    "groom_receive_resolved_bouts",
+    "groom_total_resolved_bouts",
+    "groom_bout_net_receive_minus_give",
+    "groom_bout_reciprocity_0to1",
+]
+
+PRIMARY_METRICS = [
+    "groom_duration_net_receive_minus_give_pct_session",
+    "groom_duration_reciprocity_0to1",
+]
+
+SECONDARY_METRICS = [
+    "groom_total_pct_session",
+    "groom_bout_net_receive_minus_give",
+    "groom_bout_reciprocity_0to1",
+    "social_engaged_pct_session",
+]
+
+SENSITIVITY_METRICS = [
+    "groom_duration_net_receive_minus_give_pct_quiet_masked_p90",
+    "groom_duration_reciprocity_0to1_quiet_masked_p90",
+]
+
+EXPLORATORY_METRICS = [
+    "travel_resolved_pct_session",
+    "rest_stationary_resolved_pct_session",
+    "vigilant_scan_resolved_pct_session",
+    "attention_to_outside_agents_resolved_pct_session",
+    "scratch_resolved_pct_session",
+    "self_groom_resolved_pct_session",
+    "hiccups_resolved_pct_session",
+    "pace_resolved_pct_session",
+    "forage_search_resolved_pct_session",
+    "object_manipulate_resolved_pct_session",
+    "inferred_leave_per_hour",
+]
+
+SUMMARY_LABELS = {
+    "groom_give_pct_session": "Groom give (% session)",
+    "groom_receive_pct_session": "Groom receive (% session)",
+    "groom_total_pct_session": "Total grooming (% session)",
+    "groom_give_resolved_bouts": "Groom give bouts per session",
+    "groom_receive_resolved_bouts": "Groom receive bouts per session",
+    "groom_total_resolved_bouts": "Total grooming bouts per session",
+    "groom_duration_net_receive_minus_give_pct_session": "Net grooming (% session; receive - give)",
+    "groom_duration_reciprocity_0to1": "Grooming reciprocity (0 to 1)",
+    "groom_bout_net_receive_minus_give": "Net grooming bouts (receive - give)",
+    "groom_bout_reciprocity_0to1": "Grooming bout reciprocity (0 to 1)",
+    "social_engaged_pct_session": "Social engagement (% session)",
+    "groom_duration_net_receive_minus_give_pct_quiet_masked_p90": "Quiet-masked net grooming (% session; receive - give)",
+    "groom_duration_reciprocity_0to1_quiet_masked_p90": "Quiet-masked grooming reciprocity (0 to 1)",
+}
+
 
 def load_xlsx_sheet_rows(path: Path) -> pd.DataFrame:
     with ZipFile(path) as zf:
@@ -96,6 +159,13 @@ def bootstrap_ci_for_mean_diff(dcz: np.ndarray, vehicle: np.ndarray, seed: int =
     return float(low), float(high)
 
 
+def sample_sd(values: np.ndarray) -> float:
+    values = np.asarray(values, dtype=float)
+    if len(values) < 2:
+        return float("nan")
+    return float(np.std(values, ddof=1))
+
+
 def summarize_by_condition(df: pd.DataFrame, metrics: list[str]) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for metric in metrics:
@@ -128,9 +198,9 @@ def summarize_by_condition(df: pd.DataFrame, metrics: list[str]) -> pd.DataFrame
             {
                 "metric": metric,
                 "vehicle_mean": float(np.mean(vehicle)),
-                "vehicle_sd": float(np.std(vehicle, ddof=1)),
+                "vehicle_sd": sample_sd(vehicle),
                 "DCZ_mean": float(np.mean(dcz)),
-                "DCZ_sd": float(np.std(dcz, ddof=1)),
+                "DCZ_sd": sample_sd(dcz),
                 "mean_diff_DCZ_minus_vehicle": mean_diff,
                 "bootstrap_ci95_low": ci_low,
                 "bootstrap_ci95_high": ci_high,
@@ -142,7 +212,38 @@ def summarize_by_condition(df: pd.DataFrame, metrics: list[str]) -> pd.DataFrame
     return pd.DataFrame(rows)
 
 
+def format_summary_line(row: pd.Series, label: str) -> str:
+    return (
+        f"- {label}: vehicle mean `{row['vehicle_mean']:.3f}`, DCZ mean `{row['DCZ_mean']:.3f}`, "
+        f"mean difference `{row['mean_diff_DCZ_minus_vehicle']:.3f}`, 95% CI "
+        f"`[{row['bootstrap_ci95_low']:.3f}, {row['bootstrap_ci95_high']:.3f}]`, exact permutation "
+        f"`p = {row['exact_permutation_p_two_sided']:.4f}`."
+    )
+
+
+def summarize_component_story(component_summary: pd.DataFrame) -> str:
+    give = component_summary.loc[component_summary["metric"] == "groom_give_pct_session"].iloc[0]
+    receive = component_summary.loc[component_summary["metric"] == "groom_receive_pct_session"].iloc[0]
+    give_effect = float(give["mean_diff_DCZ_minus_vehicle"])
+    receive_effect = float(receive["mean_diff_DCZ_minus_vehicle"])
+    give_mag = abs(give_effect)
+    receive_mag = abs(receive_effect)
+
+    if give_effect < 0 and receive_effect > 0:
+        if give_mag >= 1.5 * max(receive_mag, 1e-9):
+            return "The composite shift appears driven mainly by reduced grooming given under DCZ, with a smaller concurrent increase in grooming received."
+        if receive_mag >= 1.5 * max(give_mag, 1e-9):
+            return "The composite shift appears driven mainly by increased grooming received under DCZ, with a smaller concurrent decrease in grooming given."
+        return "The composite shift appears to reflect both reduced grooming given and increased grooming received under DCZ."
+    if give_effect < 0 and receive_effect <= 0:
+        return "The composite shift appears driven mainly by reduced grooming given under DCZ rather than a clear rise in grooming received."
+    if receive_effect > 0 and give_effect >= 0:
+        return "The composite shift appears driven mainly by increased grooming received under DCZ rather than a clear drop in grooming given."
+    return "The composite shift does not reduce to a clean one-component story; the raw give and receive metrics should be interpreted alongside the composite endpoints."
+
+
 def build_markdown_summary(
+    components: pd.DataFrame,
     primary: pd.DataFrame,
     secondary: pd.DataFrame,
     sensitivity: pd.DataFrame,
@@ -164,33 +265,127 @@ def build_markdown_summary(
         "- P values come from an exact two-sided label permutation test over all label assignments consistent with the cohort size.",
         "- Bootstrap 95% confidence intervals are provided for the mean difference as descriptive uncertainty intervals.",
         "",
-        "## Primary endpoints",
+        "## Raw grooming components",
+        "",
+        f"- Interpretation summary: {summarize_component_story(components)}",
+    ]
+    for metric in ["groom_give_pct_session", "groom_receive_pct_session", "groom_total_pct_session"]:
+        row = components.loc[components["metric"] == metric].iloc[0]
+        lines.append(format_summary_line(row, SUMMARY_LABELS[metric]))
+
+    lines.extend(["", "## Composite grooming metrics", ""])
+    for metric in PRIMARY_METRICS:
+        row = primary.loc[primary["metric"] == metric].iloc[0]
+        lines.append(format_summary_line(row, SUMMARY_LABELS[metric]))
+
+    lines.extend(["", "## Secondary endpoints", ""])
+    for metric in ["groom_bout_net_receive_minus_give", "groom_bout_reciprocity_0to1", "social_engaged_pct_session"]:
+        row = secondary.loc[secondary["metric"] == metric].iloc[0]
+        lines.append(format_summary_line(row, SUMMARY_LABELS[metric]))
+
+    lines.extend(["", "## Quiet-mask sensitivity for primary endpoints", ""])
+    for metric in SENSITIVITY_METRICS:
+        row = sensitivity.loc[sensitivity["metric"] == metric].iloc[0]
+        lines.append(format_summary_line(row, SUMMARY_LABELS[metric]))
+    return "\n".join(lines) + "\n"
+
+
+def build_raw_session_markdown(components: pd.DataFrame, n_vehicle: int, n_dcz: int, cohort_label: str) -> str:
+    lines = [
+        "# Raw Session Summary",
+        "",
+        f"Cohort: {cohort_label}.",
+        f"`DCZ` and `vehicle` groups contain `{n_dcz}` and `{n_vehicle}` sessions, respectively.",
+        "",
+        "## Raw grooming components",
+        "",
+        f"- Interpretation summary: {summarize_component_story(components)}",
+    ]
+    for metric in ["groom_give_pct_session", "groom_receive_pct_session", "groom_total_pct_session"]:
+        row = components.loc[components["metric"] == metric].iloc[0]
+        lines.append(format_summary_line(row, SUMMARY_LABELS[metric]))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def build_groom_bout_markdown(bout_components: pd.DataFrame, secondary: pd.DataFrame, n_vehicle: int, n_dcz: int, cohort_label: str) -> tuple[str, str]:
+    raw_lines = [
+        "# Groom Bout Session Summary",
+        "",
+        f"Cohort: {cohort_label}.",
+        f"`DCZ` and `vehicle` groups contain `{n_dcz}` and `{n_vehicle}` sessions, respectively.",
+        "",
+        "## Raw grooming bout components",
         "",
     ]
-    for row in primary.itertuples(index=False):
-        lines.append(
-            f"- `{row.metric}`: vehicle mean `{row.vehicle_mean:.3f}`, DCZ mean `{row.DCZ_mean:.3f}`, "
-            f"mean difference `{row.mean_diff_DCZ_minus_vehicle:.3f}`, 95% CI "
-            f"`[{row.bootstrap_ci95_low:.3f}, {row.bootstrap_ci95_high:.3f}]`, exact permutation "
-            f"`p = {row.exact_permutation_p_two_sided:.4f}`."
-        )
+    for metric in ["groom_give_resolved_bouts", "groom_receive_resolved_bouts", "groom_total_resolved_bouts"]:
+        row = bout_components.loc[bout_components["metric"] == metric].iloc[0]
+        raw_lines.append(format_summary_line(row, SUMMARY_LABELS[metric]))
+    raw_lines.append("")
+
+    composite_lines = [
+        "# Groom Bout Composite Summary",
+        "",
+        f"Cohort: {cohort_label}.",
+        f"`DCZ` and `vehicle` groups contain `{n_dcz}` and `{n_vehicle}` sessions, respectively.",
+        "",
+        "## Composite grooming bout metrics",
+        "",
+    ]
+    for metric in ["groom_bout_net_receive_minus_give", "groom_bout_reciprocity_0to1"]:
+        row = secondary.loc[secondary["metric"] == metric].iloc[0]
+        composite_lines.append(format_summary_line(row, SUMMARY_LABELS[metric]))
+    composite_lines.append("")
+    return "\n".join(raw_lines), "\n".join(composite_lines)
+
+
+def build_quiet_mask_assumptions_markdown() -> str:
+    lines = [
+        "# Quiet-Mask Assumptions",
+        "",
+        "- The quiet-mask branch is built from the same sessions as the full branch, but primary session-level metrics are recomputed after removing smoothed loud epochs.",
+        "- Loud epochs are defined from a centered 5 s rolling-average loudness trace within each session.",
+        "- Bins above the session-specific smoothed 90th-percentile threshold are marked as loud.",
+        "- Quiet gaps `<= 2 s` inside loud stretches are filled, and isolated loud blips `< 3 s` are removed from the mask.",
+        "- Metrics are recomputed on the retained 1 s bins after those loud epochs are removed.",
+        "- This is a robustness analysis for duration-based session summaries; it should not be interpreted as a perfect reconstruction of the original session timeline.",
+        "- Episode-level and macro-transition follow-up outputs in the quiet-mask branch are mirrored for organizational consistency and are not themselves re-derived from a time-preserving masked event stream.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def build_composite_session_markdown(
+    primary: pd.DataFrame,
+    secondary: pd.DataFrame,
+    n_vehicle: int,
+    n_dcz: int,
+    cohort_label: str,
+    sensitivity: pd.DataFrame | None = None,
+) -> str:
+    lines = [
+        "# Composite Session Summary",
+        "",
+        f"Cohort: {cohort_label}.",
+        f"`DCZ` and `vehicle` groups contain `{n_dcz}` and `{n_vehicle}` sessions, respectively.",
+        "",
+        "## Composite grooming metrics",
+        "",
+    ]
+    for metric in PRIMARY_METRICS:
+        row = primary.loc[primary["metric"] == metric].iloc[0]
+        lines.append(format_summary_line(row, SUMMARY_LABELS[metric]))
     lines.extend(["", "## Secondary endpoints", ""])
-    for row in secondary.itertuples(index=False):
-        lines.append(
-            f"- `{row.metric}`: vehicle mean `{row.vehicle_mean:.3f}`, DCZ mean `{row.DCZ_mean:.3f}`, "
-            f"mean difference `{row.mean_diff_DCZ_minus_vehicle:.3f}`, 95% CI "
-            f"`[{row.bootstrap_ci95_low:.3f}, {row.bootstrap_ci95_high:.3f}]`, exact permutation "
-            f"`p = {row.exact_permutation_p_two_sided:.4f}`."
-        )
-    lines.extend(["", "## Quiet-mask sensitivity for primary endpoints", ""])
-    for row in sensitivity.itertuples(index=False):
-        lines.append(
-            f"- `{row.metric}`: vehicle mean `{row.vehicle_mean:.3f}`, DCZ mean `{row.DCZ_mean:.3f}`, "
-            f"mean difference `{row.mean_diff_DCZ_minus_vehicle:.3f}`, 95% CI "
-            f"`[{row.bootstrap_ci95_low:.3f}, {row.bootstrap_ci95_high:.3f}]`, exact permutation "
-            f"`p = {row.exact_permutation_p_two_sided:.4f}`."
-        )
-    return "\n".join(lines) + "\n"
+    for metric in ["groom_bout_net_receive_minus_give", "groom_bout_reciprocity_0to1", "social_engaged_pct_session"]:
+        row = secondary.loc[secondary["metric"] == metric].iloc[0]
+        lines.append(format_summary_line(row, SUMMARY_LABELS[metric]))
+    if sensitivity is not None:
+        lines.extend(["", "## Quiet-mask sensitivity", ""])
+        for metric in SENSITIVITY_METRICS:
+            row = sensitivity.loc[sensitivity["metric"] == metric].iloc[0]
+            lines.append(format_summary_line(row, SUMMARY_LABELS[metric]))
+    lines.append("")
+    return "\n".join(lines)
 
 
 def cohort_tables_dir(cohort_name: str) -> Path:
@@ -206,35 +401,8 @@ def write_analysis_set(
     exploratory_df: pd.DataFrame,
     cohort_name: str,
     cohort_label: str,
+    include_nested_quiet_mask: bool = True,
 ) -> None:
-    primary_metrics = [
-        "groom_duration_net_receive_minus_give_pct_session",
-        "groom_duration_reciprocity_0to1",
-    ]
-    secondary_metrics = [
-        "groom_total_pct_session",
-        "groom_bout_net_receive_minus_give",
-        "groom_bout_reciprocity_0to1",
-        "social_engaged_pct_session",
-    ]
-    sensitivity_metrics = [
-        "groom_duration_net_receive_minus_give_pct_quiet_masked_p90",
-        "groom_duration_reciprocity_0to1_quiet_masked_p90",
-    ]
-    exploratory_metrics = [
-        "travel_resolved_pct_session",
-        "rest_stationary_resolved_pct_session",
-        "vigilant_scan_resolved_pct_session",
-        "attention_to_outside_agents_resolved_pct_session",
-        "scratch_resolved_pct_session",
-        "self_groom_resolved_pct_session",
-        "hiccups_resolved_pct_session",
-        "pace_resolved_pct_session",
-        "forage_search_resolved_pct_session",
-        "object_manipulate_resolved_pct_session",
-        "inferred_leave_per_hour",
-    ]
-
     tables_dir = cohort_tables_dir(cohort_name)
     docs_dir = cohort_docs_dir(cohort_name)
     tables_dir.mkdir(parents=True, exist_ok=True)
@@ -243,20 +411,78 @@ def write_analysis_set(
     decision_df.to_csv(tables_dir / "unblinded_decision_table.csv", index=False)
     exploratory_df.to_csv(tables_dir / "unblinded_exploratory_nonsocial_table.csv", index=False)
 
-    primary_summary = summarize_by_condition(decision_df, primary_metrics)
-    secondary_summary = summarize_by_condition(decision_df, secondary_metrics)
-    sensitivity_summary = summarize_by_condition(decision_df, sensitivity_metrics)
-    exploratory_summary = summarize_by_condition(exploratory_df, exploratory_metrics)
+    component_summary = summarize_by_condition(decision_df, GROOM_COMPONENT_METRICS)
+    bout_component_summary = summarize_by_condition(decision_df, GROOM_BOUT_COMPONENT_METRICS)
+    primary_summary = summarize_by_condition(decision_df, PRIMARY_METRICS)
+    secondary_summary = summarize_by_condition(decision_df, SECONDARY_METRICS)
+    exploratory_summary = summarize_by_condition(exploratory_df, EXPLORATORY_METRICS)
 
+    component_summary.to_csv(tables_dir / "condition_comparison_groom_components.csv", index=False)
+    bout_component_summary.to_csv(tables_dir / "condition_comparison_groom_bout_components.csv", index=False)
     primary_summary.to_csv(tables_dir / "condition_comparison_primary.csv", index=False)
     secondary_summary.to_csv(tables_dir / "condition_comparison_secondary.csv", index=False)
-    sensitivity_summary.to_csv(tables_dir / "condition_comparison_quiet_mask_sensitivity.csv", index=False)
+    sensitivity_summary = None
+    if include_nested_quiet_mask:
+        sensitivity_summary = summarize_by_condition(decision_df, SENSITIVITY_METRICS)
+        sensitivity_summary.to_csv(tables_dir / "condition_comparison_quiet_mask_sensitivity.csv", index=False)
     exploratory_summary.to_csv(tables_dir / "condition_comparison_exploratory.csv", index=False)
 
     n_vehicle = int((decision_df["condition"] == "vehicle").sum())
     n_dcz = int((decision_df["condition"] == "DCZ").sum())
-    summary_md = build_markdown_summary(primary_summary, secondary_summary, sensitivity_summary, n_vehicle, n_dcz, cohort_label)
-    (docs_dir / "unblinded_condition_summary.md").write_text(summary_md, encoding="utf-8")
+    raw_bout_markdown, composite_bout_markdown = build_groom_bout_markdown(
+        bout_component_summary,
+        secondary_summary,
+        n_vehicle,
+        n_dcz,
+        cohort_label,
+    )
+    (docs_dir / "groom_duration_session_summary.md").write_text(
+        build_raw_session_markdown(component_summary, n_vehicle, n_dcz, cohort_label),
+        encoding="utf-8",
+    )
+    (docs_dir / "groom_composite_session_summary.md").write_text(
+        build_composite_session_markdown(primary_summary, secondary_summary, n_vehicle, n_dcz, cohort_label, sensitivity_summary),
+        encoding="utf-8",
+    )
+    (docs_dir / "groom_bout_session_summary.md").write_text(raw_bout_markdown, encoding="utf-8")
+    (docs_dir / "groom_bout_composite_session_summary.md").write_text(composite_bout_markdown, encoding="utf-8")
+    if sensitivity_summary is not None:
+        (docs_dir / "quiet_mask_supplementary.md").write_text(
+            build_composite_session_markdown(primary_summary, secondary_summary, n_vehicle, n_dcz, cohort_label, sensitivity_summary),
+            encoding="utf-8",
+        )
+    if cohort_name == "quiet_mask":
+        (docs_dir / "quiet_mask_assumptions.md").write_text(
+            build_quiet_mask_assumptions_markdown(),
+            encoding="utf-8",
+        )
+
+
+def build_quiet_mask_decision(full_decision: pd.DataFrame) -> pd.DataFrame:
+    quiet = full_decision.copy()
+    quiet["session_duration_min"] = quiet["duration_min_quiet_masked_p90"]
+    quiet["groom_give_pct_session"] = quiet["groom_give_pct_quiet_masked_p90"]
+    quiet["groom_receive_pct_session"] = quiet["groom_receive_pct_quiet_masked_p90"]
+    quiet["groom_total_pct_session"] = quiet["groom_total_pct_quiet_masked_p90"]
+    quiet["groom_give_resolved_bouts"] = quiet["groom_give_bouts_quiet_masked_p90"]
+    quiet["groom_receive_resolved_bouts"] = quiet["groom_receive_bouts_quiet_masked_p90"]
+    quiet["groom_total_resolved_bouts"] = quiet["groom_total_bouts_quiet_masked_p90"]
+    quiet["groom_duration_net_receive_minus_give_pct_session"] = quiet["groom_duration_net_receive_minus_give_pct_quiet_masked_p90"]
+    quiet["groom_bout_net_receive_minus_give"] = quiet["groom_bout_net_receive_minus_give_quiet_masked_p90"]
+    quiet["groom_duration_reciprocity_0to1"] = quiet["groom_duration_reciprocity_0to1_quiet_masked_p90"]
+    quiet["groom_bout_reciprocity_0to1"] = quiet["groom_bout_reciprocity_0to1_quiet_masked_p90"]
+    quiet["social_engaged_pct_session"] = quiet["social_engaged_pct_quiet_masked_p90"]
+    quiet["attention_to_outside_agents_resolved_pct_session"] = quiet["attention_outside_pct_quiet_masked_p90"]
+    quiet["hiccups_resolved_pct_session"] = quiet["hiccups_pct_quiet_masked_p90"]
+    return quiet
+
+
+def build_quiet_mask_exploratory(full_exploratory: pd.DataFrame) -> pd.DataFrame:
+    quiet = full_exploratory.copy()
+    quiet["travel_resolved_pct_session"] = quiet["travel_pct_quiet_masked_p90"]
+    quiet["attention_to_outside_agents_resolved_pct_session"] = quiet["attention_outside_pct_quiet_masked_p90"]
+    quiet["hiccups_resolved_pct_session"] = quiet["hiccups_pct_quiet_masked_p90"]
+    return quiet
 
 
 def main() -> None:
@@ -274,7 +500,14 @@ def main() -> None:
     exploratory = exploratory.merge(decision[["session_id", "inferred_leave_per_hour"]], on="session_id", how="left")
     full_exploratory = session_map.merge(exploratory, on="session_id", how="inner").sort_values("date").reset_index(drop=True)
 
-    write_analysis_set(full_decision, full_exploratory, "full", "full session set")
+    write_analysis_set(full_decision, full_exploratory, "full", "full session set", include_nested_quiet_mask=False)
+    write_analysis_set(
+        build_quiet_mask_decision(full_decision),
+        build_quiet_mask_exploratory(full_exploratory),
+        "quiet_mask",
+        "quiet-mask sensitivity session set",
+        include_nested_quiet_mask=False,
+    )
 
     filtered_decision = full_decision.loc[full_decision["session_id"] != VET_ENTRY_SESSION_ID].reset_index(drop=True)
     filtered_exploratory = full_exploratory.loc[full_exploratory["session_id"] != VET_ENTRY_SESSION_ID].reset_index(drop=True)

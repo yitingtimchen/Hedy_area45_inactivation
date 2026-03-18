@@ -102,7 +102,7 @@ Audio is used only for sensitivity analysis, not for defining the core behavior 
 ### Main sensitivity comparison
 
 - `full_trimmed`: all trimmed behavioral data
-- `quiet_masked_p90`: same trimmed session with the loudest 10% of 1 s bins removed based on session RMS
+- `quiet_masked_p90`: same trimmed session after removing smoothed loud epochs defined from a centered 5 s rolling-average loudness trace, thresholded at the session-specific 90th percentile, with short-gap bridging and isolated-blip removal
 
 Rationale:
 

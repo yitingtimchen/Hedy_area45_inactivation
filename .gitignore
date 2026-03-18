@@ -9,6 +9,7 @@ results/
 # Large source media
 data/raw/videos/
 data/raw/videos_720p/
+data/raw/video_samples/
 
 # Local environment files
 .DS_Store

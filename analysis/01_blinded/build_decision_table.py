@@ -19,6 +19,11 @@ def main() -> None:
         "groom_give_pct_session",
         "groom_receive_pct_session",
         "groom_total_pct_session",
+        "groom_give_resolved_bouts",
+        "groom_receive_resolved_bouts",
+        "groom_give_bouts_per_hour",
+        "groom_receive_bouts_per_hour",
+        "groom_total_bouts_per_hour",
         "groom_duration_net_receive_minus_give_pct_session",
         "groom_bout_net_receive_minus_give",
         "groom_duration_reciprocity_0to1",
@@ -39,6 +44,8 @@ def main() -> None:
         "groom_total_pct_quiet_masked_p90",
         "groom_duration_net_receive_minus_give_pct_quiet_masked_p90",
         "groom_duration_net_receive_minus_give_pct_delta_quiet_minus_full",
+        "groom_give_bouts_quiet_masked_p90",
+        "groom_receive_bouts_quiet_masked_p90",
         "groom_bout_net_receive_minus_give_quiet_masked_p90",
         "groom_bout_net_receive_minus_give_delta_quiet_minus_full",
         "groom_duration_reciprocity_0to1_quiet_masked_p90",
@@ -54,6 +61,8 @@ def main() -> None:
     ]
 
     decision = session_summary[session_cols].merge(quiet[quiet_cols], on="session_id", how="left")
+    decision["groom_total_resolved_bouts"] = decision["groom_give_resolved_bouts"] + decision["groom_receive_resolved_bouts"]
+    decision["groom_total_bouts_quiet_masked_p90"] = decision["groom_give_bouts_quiet_masked_p90"] + decision["groom_receive_bouts_quiet_masked_p90"]
     decision = decision.sort_values("session_id").reset_index(drop=True)
     decision.to_csv(BLINDED_TABLES_DIR / "blinded_decision_table.csv", index=False)
 

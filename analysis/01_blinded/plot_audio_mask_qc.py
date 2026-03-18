@@ -19,6 +19,10 @@ FULL_COLOR = "#9FB3C8"
 MASKED_COLOR = "#1F4AA8"
 DELTA_COLOR = "#111111"
 
+SMOOTH_WINDOW_BINS = 5
+MAX_QUIET_GAP_BINS = 2
+MIN_LOUD_RUN_BINS = 3
+
 
 def main() -> None:
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
@@ -29,6 +33,54 @@ def main() -> None:
     plot_loudness_distribution_gallery(features, decision["session_id"].tolist())
     plot_endpoint_pairs(decision)
     plot_mask_delta_summary(decision)
+
+
+def _fill_short_false_gaps(mask: np.ndarray, max_gap: int) -> np.ndarray:
+    out = mask.copy()
+    n = len(out)
+    i = 0
+    while i < n:
+        if out[i]:
+            i += 1
+            continue
+        start = i
+        while i < n and not out[i]:
+            i += 1
+        end = i
+        if start > 0 and end < n and out[start - 1] and out[end] and (end - start) <= max_gap:
+            out[start:end] = True
+    return out
+
+
+def _remove_short_true_runs(mask: np.ndarray, min_run: int) -> np.ndarray:
+    out = mask.copy()
+    n = len(out)
+    i = 0
+    while i < n:
+        if not out[i]:
+            i += 1
+            continue
+        start = i
+        while i < n and out[i]:
+            i += 1
+        end = i
+        if (end - start) < min_run:
+            out[start:end] = False
+    return out
+
+
+def compute_smoothed_loud_mask(sub: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, float]:
+    smoothed_rms = (
+        sub["rms_dbfs"]
+        .rolling(window=SMOOTH_WINDOW_BINS, center=True, min_periods=1)
+        .mean()
+        .to_numpy(dtype=float)
+    )
+    threshold = float(np.quantile(smoothed_rms, 0.90))
+    loud_mask = smoothed_rms >= threshold
+    loud_mask = _fill_short_false_gaps(loud_mask, MAX_QUIET_GAP_BINS)
+    loud_mask = _remove_short_true_runs(loud_mask, MIN_LOUD_RUN_BINS)
+    return loud_mask, smoothed_rms, threshold
 
 
 def plot_loudness_trace_gallery(features: pd.DataFrame, sessions: list[str]) -> None:
@@ -43,10 +95,10 @@ def plot_loudness_trace_gallery(features: pd.DataFrame, sessions: list[str]) -> 
         sub = features[features["session_id"] == session_id].sort_values("elapsed_mid_min").copy()
         x = sub["elapsed_mid_min"].to_numpy()
         y = sub["rms_dbfs"].to_numpy()
-        threshold = float(sub["session_rms_dbfs_p90"].iloc[0])
-        masked = sub["rms_dbfs"] >= threshold
+        masked, smoothed_rms, threshold = compute_smoothed_loud_mask(sub)
 
         ax.plot(x, y, color=TRACE_COLOR, linewidth=0.8, alpha=0.85)
+        ax.plot(x, smoothed_rms, color=THRESH_COLOR, linewidth=1.0, alpha=0.8)
         if masked.any():
             ax.scatter(
                 sub.loc[masked, "elapsed_mid_min"],
@@ -66,7 +118,7 @@ def plot_loudness_trace_gallery(features: pd.DataFrame, sessions: list[str]) -> 
 
     fig.supxlabel("Minutes from trimmed pairing start")
     fig.supylabel("RMS (dBFS)")
-    fig.suptitle("Audio mask QC: loudness traces and masked bins", fontsize=12, x=0.06, ha="left")
+    fig.suptitle("Audio mask QC: smoothed loudness traces and masked epochs", fontsize=12, x=0.06, ha="left")
     fig.tight_layout()
     fig.savefig(FIGURES_DIR / "blinded_audio_mask_trace_gallery.png", dpi=220, bbox_inches="tight")
     plt.close(fig)
@@ -82,8 +134,9 @@ def plot_loudness_distribution_gallery(features: pd.DataFrame, sessions: list[st
 
     for ax, session_id in zip(axes, sessions):
         sub = features[features["session_id"] == session_id].copy()
-        threshold = float(sub["session_rms_dbfs_p90"].iloc[0])
+        _, smoothed_rms, threshold = compute_smoothed_loud_mask(sub)
         ax.hist(sub["rms_dbfs"], bins=bins, color=FULL_COLOR, alpha=0.9, edgecolor="white", linewidth=0.35)
+        ax.hist(smoothed_rms, bins=bins, color=MASKED_COLOR, alpha=0.35, edgecolor="none")
         ax.axvline(threshold, color=THRESH_COLOR, linewidth=1.0, linestyle="--")
         ax.axvspan(threshold, x_max, color=MASK_COLOR, alpha=0.12)
         ax.set_title(session_id, fontsize=9, loc="left")
@@ -94,7 +147,7 @@ def plot_loudness_distribution_gallery(features: pd.DataFrame, sessions: list[st
 
     fig.supxlabel("RMS (dBFS)")
     fig.supylabel("1 s bins")
-    fig.suptitle("Audio mask QC: per-session loudness distributions", fontsize=12, x=0.06, ha="left")
+    fig.suptitle("Audio mask QC: raw and smoothed loudness distributions", fontsize=12, x=0.06, ha="left")
     fig.tight_layout()
     fig.savefig(FIGURES_DIR / "blinded_audio_mask_distribution_gallery.png", dpi=220, bbox_inches="tight")
     plt.close(fig)

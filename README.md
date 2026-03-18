@@ -30,3 +30,4 @@ Analysis workspace for a blinded behavioral study of DREADD inactivation of Area
 - Generated outputs in `data/derived/` and `results/` can be regenerated from the scripts in `analysis/`.
 - The current blinded endpoint logic is documented in `docs/blinded_analysis_plan.md`.
 - The current masking sensitivity summary is documented in `docs/audio_mask_sensitivity.md`.
+- Future grooming-specific sensitivity ideas are tracked in `docs/future_grooming_sensitivity_notes.md`.

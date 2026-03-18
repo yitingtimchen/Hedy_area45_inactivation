@@ -191,9 +191,24 @@ def safe_rate_per_hour(num: int, duration_s: float) -> float | None:
     return num / (duration_s / 3600.0)
 
 
+def episode_order_slope(values: np.ndarray) -> float:
+    values = np.asarray(values, dtype=float)
+    if len(values) < 2:
+        return float("nan")
+    x = np.arange(1, len(values) + 1, dtype=float)
+    xc = x - x.mean()
+    X = np.column_stack([np.ones(len(x)), xc])
+    beta, *_ = np.linalg.lstsq(X, values, rcond=None)
+    return float(beta[1])
+
+
 def episode_turn_taking_metrics(timeline: pd.DataFrame, social_episodes: pd.DataFrame) -> dict[str, object]:
     grooming_episodes = 0
     turn_taking_episodes = 0
+    give_initiated_episodes = 0
+    receive_initiated_episodes = 0
+    give_to_receive_episodes = 0
+    receive_to_give_episodes = 0
     latencies: list[float] = []
     give_to_receive_latencies: list[float] = []
     receive_to_give_latencies: list[float] = []
@@ -210,6 +225,10 @@ def episode_turn_taking_metrics(timeline: pd.DataFrame, social_episodes: pd.Data
         grooming_episodes += 1
         first = groom_seq.iloc[0]
         first_role = GROOM_LABEL_MAP[first["social_state"]]
+        if first_role == "groom_give":
+            give_initiated_episodes += 1
+        else:
+            receive_initiated_episodes += 1
         target_label = "Groom receive" if first_role == "groom_give" else "Groom give"
         later = groom_seq.loc[(groom_seq["start_s"] >= float(first["end_s"]) - 1e-9) & (groom_seq["social_state"] == target_label)]
         if later.empty:
@@ -219,17 +238,136 @@ def episode_turn_taking_metrics(timeline: pd.DataFrame, social_episodes: pd.Data
         latency = float(later.iloc[0]["start_s"]) - float(first["end_s"])
         latencies.append(latency)
         if first_role == "groom_give":
+            give_to_receive_episodes += 1
             give_to_receive_latencies.append(latency)
         else:
+            receive_to_give_episodes += 1
             receive_to_give_latencies.append(latency)
 
     return {
         "grooming_social_episode_count": grooming_episodes,
         "turn_taking_social_episode_count": turn_taking_episodes,
+        "give_initiated_episode_count": give_initiated_episodes,
+        "receive_initiated_episode_count": receive_initiated_episodes,
+        "give_to_receive_episode_count": give_to_receive_episodes,
+        "receive_to_give_episode_count": receive_to_give_episodes,
         "episode_turn_taking_prob": safe_prob(turn_taking_episodes, grooming_episodes),
         "episode_turn_taking_latency_median_s": float(np.median(latencies)) if latencies else np.nan,
+        "give_to_receive_prob_same_episode": safe_prob(give_to_receive_episodes, give_initiated_episodes),
+        "receive_to_give_prob_same_episode": safe_prob(receive_to_give_episodes, receive_initiated_episodes),
         "episode_give_to_receive_latency_median_s": float(np.median(give_to_receive_latencies)) if give_to_receive_latencies else np.nan,
         "episode_receive_to_give_latency_median_s": float(np.median(receive_to_give_latencies)) if receive_to_give_latencies else np.nan,
+    }
+
+
+def build_groom_episode_table(timeline: pd.DataFrame, social_episodes: pd.DataFrame, session_id: str, duration_s: float) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    session_start_s = float(timeline["start_s"].min())
+    grooming_episode_order = 0
+
+    for episode in social_episodes.itertuples(index=False):
+        sequence = collapse_social_sequence_within_episode(timeline, float(episode.start_s), float(episode.end_s))
+        if sequence.empty:
+            continue
+
+        groom_seq = sequence.loc[sequence["social_state"].isin(GROOM_LABEL_MAP.keys())].reset_index(drop=True)
+        if groom_seq.empty:
+            continue
+
+        grooming_episode_order += 1
+        first = groom_seq.iloc[0]
+        first_role = GROOM_LABEL_MAP[first["social_state"]]
+        target_label = "Groom receive" if first_role == "groom_give" else "Groom give"
+        later = groom_seq.loc[(groom_seq["start_s"] >= float(first["end_s"]) - 1e-9) & (groom_seq["social_state"] == target_label)]
+        reciprocated = not later.empty
+        latency_s = float(later.iloc[0]["start_s"]) - float(first["end_s"]) if reciprocated else np.nan
+        episode_mid_s = 0.5 * (float(episode.start_s) + float(episode.end_s))
+        rows.append(
+            {
+                "session_id": session_id,
+                "social_bout_id": int(episode.bout_id),
+                "grooming_episode_order": grooming_episode_order,
+                "episode_start_s": float(episode.start_s),
+                "episode_end_s": float(episode.end_s),
+                "episode_duration_s": float(episode.duration_s),
+                "episode_mid_s": episode_mid_s,
+                "episode_mid_elapsed_s": episode_mid_s - session_start_s,
+                "episode_mid_frac_session": (episode_mid_s - session_start_s) / duration_s if duration_s > 0 else np.nan,
+                "first_groom_role": first_role,
+                "reciprocated_same_episode": bool(reciprocated),
+                "opposite_role_latency_s": latency_s,
+                "is_give_initiated": int(first_role == "groom_give"),
+                "is_receive_initiated": int(first_role == "groom_receive"),
+                "is_give_reciprocated": int(first_role == "groom_give" and reciprocated),
+                "is_give_unreciprocated": int(first_role == "groom_give" and not reciprocated),
+                "is_receive_reciprocated": int(first_role == "groom_receive" and reciprocated),
+                "is_receive_unreciprocated": int(first_role == "groom_receive" and not reciprocated),
+                "is_unreciprocated_give": int(first_role == "groom_give" and not reciprocated),
+                "is_unreciprocated_receive": int(first_role == "groom_receive" and not reciprocated),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def feedback_dynamics_metrics(episode_df: pd.DataFrame) -> dict[str, object]:
+    if episode_df.empty:
+        return {
+            "grooming_episode_count": 0,
+            "give_reciprocated_episode_count": 0,
+            "give_unreciprocated_episode_count": 0,
+            "receive_reciprocated_episode_count": 0,
+            "receive_unreciprocated_episode_count": 0,
+            "give_reciprocated_share_of_all_episodes": np.nan,
+            "give_unreciprocated_share_of_all_episodes": np.nan,
+            "receive_reciprocated_share_of_all_episodes": np.nan,
+            "receive_unreciprocated_share_of_all_episodes": np.nan,
+            "give_reciprocated_episode_order_slope": np.nan,
+            "give_unreciprocated_episode_order_slope": np.nan,
+            "receive_reciprocated_episode_order_slope": np.nan,
+            "receive_unreciprocated_episode_order_slope": np.nan,
+            "receive_initiated_episode_share": np.nan,
+            "give_initiated_episode_share": np.nan,
+            "receive_initiated_unreciprocated_share": np.nan,
+            "give_initiated_unreciprocated_share": np.nan,
+            "receive_initiated_episode_order_slope": np.nan,
+            "reciprocated_episode_order_slope": np.nan,
+            "unreciprocated_receive_episode_order_slope": np.nan,
+        }
+
+    receive_mask = episode_df["is_receive_initiated"].to_numpy(dtype=float)
+    give_mask = episode_df["is_give_initiated"].to_numpy(dtype=float)
+    reciprocated = episode_df["reciprocated_same_episode"].astype(float).to_numpy()
+    give_reciprocated = episode_df["is_give_reciprocated"].to_numpy(dtype=float)
+    give_unreciprocated = episode_df["is_give_unreciprocated"].to_numpy(dtype=float)
+    receive_reciprocated = episode_df["is_receive_reciprocated"].to_numpy(dtype=float)
+    receive_unreciprocated = episode_df["is_receive_unreciprocated"].to_numpy(dtype=float)
+    unreciprocated_receive = episode_df["is_unreciprocated_receive"].to_numpy(dtype=float)
+    unreciprocated_give = episode_df["is_unreciprocated_give"].to_numpy(dtype=float)
+    n_receive = int(receive_mask.sum())
+    n_give = int(give_mask.sum())
+
+    return {
+        "grooming_episode_count": int(len(episode_df)),
+        "give_reciprocated_episode_count": int(give_reciprocated.sum()),
+        "give_unreciprocated_episode_count": int(give_unreciprocated.sum()),
+        "receive_reciprocated_episode_count": int(receive_reciprocated.sum()),
+        "receive_unreciprocated_episode_count": int(receive_unreciprocated.sum()),
+        "give_reciprocated_share_of_all_episodes": float(give_reciprocated.mean()),
+        "give_unreciprocated_share_of_all_episodes": float(give_unreciprocated.mean()),
+        "receive_reciprocated_share_of_all_episodes": float(receive_reciprocated.mean()),
+        "receive_unreciprocated_share_of_all_episodes": float(receive_unreciprocated.mean()),
+        "give_reciprocated_episode_order_slope": episode_order_slope(give_reciprocated),
+        "give_unreciprocated_episode_order_slope": episode_order_slope(give_unreciprocated),
+        "receive_reciprocated_episode_order_slope": episode_order_slope(receive_reciprocated),
+        "receive_unreciprocated_episode_order_slope": episode_order_slope(receive_unreciprocated),
+        "receive_initiated_episode_share": float(receive_mask.mean()),
+        "give_initiated_episode_share": float(give_mask.mean()),
+        "receive_initiated_unreciprocated_share": safe_prob(int(unreciprocated_receive.sum()), n_receive),
+        "give_initiated_unreciprocated_share": safe_prob(int(unreciprocated_give.sum()), n_give),
+        "receive_initiated_episode_order_slope": episode_order_slope(receive_mask),
+        "reciprocated_episode_order_slope": episode_order_slope(reciprocated),
+        "unreciprocated_receive_episode_order_slope": episode_order_slope(unreciprocated_receive),
     }
 
 
@@ -264,7 +402,7 @@ def immediate_transition_metrics(states: pd.DataFrame) -> dict[str, object]:
     }
 
 
-def summarize_session(session_id: str) -> dict[str, object]:
+def summarize_session(session_id: str) -> tuple[dict[str, object], pd.DataFrame]:
     timeline = pd.read_csv(INTERVALS_DIR / f"{session_id}_layered_timeline.csv")
     social_episodes = load_social_episodes(session_id)
     duration_s = float(timeline["duration_s"].sum())
@@ -273,17 +411,23 @@ def summarize_session(session_id: str) -> dict[str, object]:
     states = bridge_short_unscored_gaps(states)
 
     episode_turn_taking = episode_turn_taking_metrics(timeline, social_episodes)
+    groom_episode_df = build_groom_episode_table(timeline, social_episodes, session_id, duration_s)
+    feedback_metrics = feedback_dynamics_metrics(groom_episode_df)
     transitions = immediate_transition_metrics(states)
 
-    return {
-        "session_id": session_id,
-        "trimmed_session_duration_s": duration_s,
-        **episode_turn_taking,
-        **transitions,
-        "turn_taking_social_episodes_per_hour": safe_rate_per_hour(int(episode_turn_taking["turn_taking_social_episode_count"]), duration_s),
-        "groom_to_nonsocial_events_per_hour": safe_rate_per_hour(int(transitions["groom_to_nonsocial_events"]), duration_s),
-        "nonsocial_to_groom_events_per_hour": safe_rate_per_hour(int(transitions["nonsocial_to_groom_events"]), duration_s),
-    }
+    return (
+        {
+            "session_id": session_id,
+            "trimmed_session_duration_s": duration_s,
+            **episode_turn_taking,
+            **feedback_metrics,
+            **transitions,
+            "turn_taking_social_episodes_per_hour": safe_rate_per_hour(int(episode_turn_taking["turn_taking_social_episode_count"]), duration_s),
+            "groom_to_nonsocial_events_per_hour": safe_rate_per_hour(int(transitions["groom_to_nonsocial_events"]), duration_s),
+            "nonsocial_to_groom_events_per_hour": safe_rate_per_hour(int(transitions["nonsocial_to_groom_events"]), duration_s),
+        },
+        groom_episode_df,
+    )
 
 
 def bootstrap_ci_for_mean_diff(dcz: np.ndarray, vehicle: np.ndarray, seed: int = 57, n_boot: int = 20000) -> tuple[float, float]:
@@ -293,6 +437,13 @@ def bootstrap_ci_for_mean_diff(dcz: np.ndarray, vehicle: np.ndarray, seed: int =
     diffs = dcz_draws - veh_draws
     low, high = np.percentile(diffs, [2.5, 97.5])
     return float(low), float(high)
+
+
+def sample_sd(values: np.ndarray) -> float:
+    values = np.asarray(values, dtype=float)
+    if len(values) < 2:
+        return float("nan")
+    return float(np.std(values, ddof=1))
 
 
 def exact_label_permutation_p(values: np.ndarray, labels: np.ndarray) -> tuple[float, float]:
@@ -326,9 +477,9 @@ def compare_conditions(df: pd.DataFrame, metrics: list[str]) -> pd.DataFrame:
             {
                 "metric": metric,
                 "vehicle_mean": float(np.mean(vehicle)),
-                "vehicle_sd": float(np.std(vehicle, ddof=1)),
+                "vehicle_sd": sample_sd(vehicle),
                 "DCZ_mean": float(np.mean(dcz)),
-                "DCZ_sd": float(np.std(dcz, ddof=1)),
+                "DCZ_sd": sample_sd(dcz),
                 "mean_diff_DCZ_minus_vehicle": effect,
                 "bootstrap_ci95_low": ci_low,
                 "bootstrap_ci95_high": ci_high,
@@ -356,12 +507,18 @@ def build_markdown(summary: pd.DataFrame, cohort_label: str) -> str:
         "## Definitions",
         "",
         "- Social episodes use the locked preprocessing definition in which `social_engaged` periods are merged across gaps `<= 2 s`.",
+        "- `social_engaged` includes `Proximity (<arm's reach)`, `Contact/Sit-with`, `Groom give`, `Groom receive`, `Groom solicit`, `Mount give`, `Mount receive`, `Mount attempt`, `Affiliative touch`, and `Muzzle-muzzle contact`.",
         f"- The transition stream for non-social entry and exit metrics collapses the cleaned layered timeline into `groom_give`, `groom_receive`, `other_social`, `nonsocial_activity`, `attention_only`, `atypical_only`, and `unscored`.",
         f"- Short `unscored` gaps of duration `<= {UNSCORED_BRIDGE_S:.0f} s` are removed before recollapsing adjacent identical states for the non-social entry and exit metrics.",
         "- `episode_turn_taking_prob`: among social episodes that contain grooming, the proportion in which the opposite grooming role appears later in the same social episode.",
         "- `episode_turn_taking_latency_median_s`: the median latency from the end of the first grooming role to the start of the opposite grooming role within that same social episode.",
         "- `groom_to_nonsocial_prob`: among grooming bouts with a known next state, the proportion whose next state is `nonsocial_activity`.",
         "- `nonsocial_to_groom_prob`: among `nonsocial_activity` bouts with a known next state, the proportion whose next state is grooming (`give` or `receive`).",
+        "",
+        "## Interpretation notes",
+        "",
+        "- A social episode is not the same thing as a single grooming bout; it can include proximity, contact, or other social states around the grooming.",
+        "- The episode-level turn-taking metric is a same-episode follow-through measure, not an immediate next-state or Markov transition probability.",
         "",
         "## Condition comparisons",
         "",
@@ -385,7 +542,146 @@ def build_markdown(summary: pd.DataFrame, cohort_label: str) -> str:
     return "\n".join(lines)
 
 
-def write_outputs(metrics_df: pd.DataFrame, cohort_name: str, cohort_label: str) -> None:
+def build_directional_markdown(summary: pd.DataFrame, cohort_label: str) -> str:
+    pretty = {
+        "give_initiated_episode_count": "Hedy start episodes per session",
+        "receive_initiated_episode_count": "Hooke start episodes per session",
+        "give_to_receive_prob_same_episode": "Probability that Hooke reciprocates within the same episode after Hedy starts",
+        "receive_to_give_prob_same_episode": "Probability that Hedy reciprocates within the same episode after Hooke starts",
+        "episode_give_to_receive_latency_median_s": "Time until Hooke reciprocates within the same episode (s)",
+        "episode_receive_to_give_latency_median_s": "Time until Hedy reciprocates within the same episode (s)",
+    }
+    lines = [
+        "# Groom Directional Follow-Up Analysis",
+        "",
+        f"Cohort: {cohort_label}.",
+        "These follow-ups decompose grooming episodes by which grooming direction appeared first, so the session-level shift can be interpreted as a possible within-session interaction pattern rather than only a static session average.",
+        "",
+        "## Definitions",
+        "",
+        "- Grooming episodes use the existing social-episode definition from the locked preprocessing pipeline: `social_engaged` segments are merged across gaps `<= 2 s` into one social bout.",
+        "- `social_engaged` includes `Proximity (<arm's reach)`, `Contact/Sit-with`, `Groom give`, `Groom receive`, `Groom solicit`, `Mount give`, `Mount receive`, `Mount attempt`, `Affiliative touch`, and `Muzzle-muzzle contact`.",
+        "- `give_initiated_episode_count` and `receive_initiated_episode_count` count grooming-containing social episodes by whether Hedy or Hooke grooms first in the episode.",
+        "- `give_to_receive_prob_same_episode` is the proportion of Hedy-start episodes in which Hooke grooms later in that same episode.",
+        "- `receive_to_give_prob_same_episode` is the proportion of Hooke-start episodes in which Hedy grooms later in that same episode.",
+        "- The directional latency metrics summarize the median time from the end of the first grooming role to the start of the partner's reciprocating grooming within the same episode.",
+        "",
+        "## Assumptions and interpretation boundaries",
+        "",
+        "- An episode is a social-engagement bout, not a single grooming bout. Non-groom social states such as proximity or contact may occur between the first grooming role and the later opposite grooming role and still count as the same episode.",
+        "- The directional probabilities are episode-level follow-through measures. They do not require the opposite grooming role to be the immediate next state, and they do not count every back-and-forth alternation within an episode.",
+        "- A Hedy-start episode counts as a `give_to_receive` success if any later `Groom receive` occurs after the end of the first `Groom give` segment in that same episode; the Hooke-start definition is symmetric.",
+        "- These measures are intended as mechanistic follow-ups to the session-level grooming result, not as replacements for the primary condition comparison.",
+        "",
+        "## Condition comparisons",
+        "",
+    ]
+    for metric in [
+        "give_initiated_episode_count",
+        "receive_initiated_episode_count",
+        "give_to_receive_prob_same_episode",
+        "receive_to_give_prob_same_episode",
+        "episode_give_to_receive_latency_median_s",
+        "episode_receive_to_give_latency_median_s",
+    ]:
+        row = summary.loc[summary["metric"] == metric]
+        if row.empty:
+            continue
+        r = row.iloc[0]
+        lines.append(
+            f"- {pretty[metric]}: vehicle mean `{r['vehicle_mean']:.3f}`, DCZ mean `{r['DCZ_mean']:.3f}`, "
+            f"mean difference `{r['mean_diff_DCZ_minus_vehicle']:.3f}`, 95% CI `[{r['bootstrap_ci95_low']:.3f}, {r['bootstrap_ci95_high']:.3f}]`, "
+            f"exact permutation `p = {r['exact_permutation_p_two_sided']:.4f}`."
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def build_feedback_markdown(summary: pd.DataFrame, cohort_label: str) -> str:
+    pretty = {
+        "give_reciprocated_episode_count": "Hedy grooms first, Hooke reciprocates episodes per session",
+        "give_unreciprocated_episode_count": "Hedy grooms first, Hooke does not reciprocate episodes per session",
+        "receive_reciprocated_episode_count": "Hooke grooms first, Hedy reciprocates episodes per session",
+        "receive_unreciprocated_episode_count": "Hooke grooms first, Hedy does not reciprocate episodes per session",
+        "give_reciprocated_share_of_all_episodes": "Share of all grooming episodes where Hedy grooms first and Hooke reciprocates",
+        "give_unreciprocated_share_of_all_episodes": "Share of all grooming episodes where Hedy grooms first and Hooke does not reciprocate",
+        "receive_reciprocated_share_of_all_episodes": "Share of all grooming episodes where Hooke grooms first and Hedy reciprocates",
+        "receive_unreciprocated_share_of_all_episodes": "Share of all grooming episodes where Hooke grooms first and Hedy does not reciprocate",
+        "give_reciprocated_episode_order_slope": "Slope of episodes where Hedy grooms first and Hooke reciprocates over grooming-episode order",
+        "give_unreciprocated_episode_order_slope": "Slope of episodes where Hedy grooms first and Hooke does not reciprocate over grooming-episode order",
+        "receive_reciprocated_episode_order_slope": "Slope of episodes where Hooke grooms first and Hedy reciprocates over grooming-episode order",
+        "receive_unreciprocated_episode_order_slope": "Slope of episodes where Hooke grooms first and Hedy does not reciprocate over grooming-episode order",
+    }
+    lines = [
+        "# Groom Feedback Dynamics Analysis",
+        "",
+        f"Cohort: {cohort_label}.",
+        "This follow-up asks whether the directional structure of grooming episodes changes over the course of a session in a way that is compatible with a feedback loop.",
+        "",
+        "## Definitions",
+        "",
+        "- The unit of analysis is the grooming-containing social episode defined in the locked preprocessing pipeline.",
+        "- Each grooming episode is assigned to exactly one cell in the `who grooms first x whether the partner reciprocates` decomposition.",
+        "- The main share denominator is always `all grooming episodes in that session`, so the four share metrics sum to `1.0` for sessions with at least one grooming episode.",
+        "- `Reciprocated` means the opposite grooming role appears later in the same social episode; `unreciprocated` means it does not.",
+        "- The slope metrics fit a simple linear trend over grooming-episode order within each session. Positive values mean that cell becomes more common later in the session.",
+        "",
+        "## Interpretation boundaries",
+        "",
+        "- These are mechanistic follow-ups aimed at within-session dynamics, not new primary endpoints.",
+        "- Because the slope is computed within each session over grooming-episode order, it uses all grooming episodes rather than an arbitrary early/late split.",
+        "- As with the directional episode analysis, brief `Groom receive` events may mix genuine received grooming with partner solicitation; interpret receive-side metrics accordingly.",
+        "",
+        "## Condition comparisons",
+        "",
+    ]
+    metric_groups = [
+        (
+            "Cell counts per session",
+            [
+                "give_reciprocated_episode_count",
+                "give_unreciprocated_episode_count",
+                "receive_reciprocated_episode_count",
+                "receive_unreciprocated_episode_count",
+            ],
+        ),
+        (
+            "Cell shares of all grooming episodes",
+            [
+                "give_reciprocated_share_of_all_episodes",
+                "give_unreciprocated_share_of_all_episodes",
+                "receive_reciprocated_share_of_all_episodes",
+                "receive_unreciprocated_share_of_all_episodes",
+            ],
+        ),
+        (
+            "Cell slopes over grooming-episode order",
+            [
+                "give_reciprocated_episode_order_slope",
+                "give_unreciprocated_episode_order_slope",
+                "receive_reciprocated_episode_order_slope",
+                "receive_unreciprocated_episode_order_slope",
+            ],
+        ),
+    ]
+    for heading, metrics in metric_groups:
+        lines.append(f"### {heading}")
+        for metric in metrics:
+            row = summary.loc[summary["metric"] == metric]
+            if row.empty:
+                continue
+            r = row.iloc[0]
+            lines.append(
+                f"- {pretty[metric]}: vehicle mean `{r['vehicle_mean']:.3f}`, DCZ mean `{r['DCZ_mean']:.3f}`, "
+                f"mean difference `{r['mean_diff_DCZ_minus_vehicle']:.3f}`, 95% CI `[{r['bootstrap_ci95_low']:.3f}, {r['bootstrap_ci95_high']:.3f}]`, "
+                f"exact permutation `p = {r['exact_permutation_p_two_sided']:.4f}`."
+            )
+        lines.append("")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def write_outputs(metrics_df: pd.DataFrame, episode_df: pd.DataFrame, cohort_name: str, cohort_label: str) -> None:
     tables_dir = UNBLINDED_ROOT / cohort_name / "tables"
     docs_dir = DOCS_ROOT / cohort_name
     tables_dir.mkdir(parents=True, exist_ok=True)
@@ -402,7 +698,49 @@ def write_outputs(metrics_df: pd.DataFrame, cohort_name: str, cohort_label: str)
         ],
     )
     summary.to_csv(tables_dir / "groom_followup_condition_comparison.csv", index=False)
-    (docs_dir / "groom_followup_analysis.md").write_text(build_markdown(summary, cohort_label), encoding="utf-8")
+
+    directional_metrics = [
+        "give_initiated_episode_count",
+        "receive_initiated_episode_count",
+        "give_to_receive_prob_same_episode",
+        "receive_to_give_prob_same_episode",
+        "episode_give_to_receive_latency_median_s",
+        "episode_receive_to_give_latency_median_s",
+    ]
+    directional_cols = ["session_id", "original_name", "condition", "date", "session_index"] + directional_metrics
+    directional_df = metrics_df[directional_cols].copy()
+    directional_df.to_csv(tables_dir / "groom_directional_followup_metrics_by_session.csv", index=False)
+    directional_summary = compare_conditions(metrics_df, directional_metrics)
+    directional_summary.to_csv(tables_dir / "groom_directional_followup_condition_comparison.csv", index=False)
+    (docs_dir / "groom_directional_followup.md").write_text(
+        build_directional_markdown(directional_summary, cohort_label),
+        encoding="utf-8",
+    )
+
+    episode_df.to_csv(tables_dir / "groom_feedback_episode_table.csv", index=False)
+    feedback_metrics = [
+        "give_reciprocated_episode_count",
+        "give_unreciprocated_episode_count",
+        "receive_reciprocated_episode_count",
+        "receive_unreciprocated_episode_count",
+        "give_reciprocated_share_of_all_episodes",
+        "give_unreciprocated_share_of_all_episodes",
+        "receive_reciprocated_share_of_all_episodes",
+        "receive_unreciprocated_share_of_all_episodes",
+        "give_reciprocated_episode_order_slope",
+        "give_unreciprocated_episode_order_slope",
+        "receive_reciprocated_episode_order_slope",
+        "receive_unreciprocated_episode_order_slope",
+    ]
+    feedback_cols = ["session_id", "original_name", "condition", "date", "session_index", "grooming_episode_count"] + feedback_metrics
+    feedback_df = metrics_df[feedback_cols].copy()
+    feedback_df.to_csv(tables_dir / "groom_feedback_dynamics_metrics_by_session.csv", index=False)
+    feedback_summary = compare_conditions(metrics_df, feedback_metrics)
+    feedback_summary.to_csv(tables_dir / "groom_feedback_dynamics_condition_comparison.csv", index=False)
+    (docs_dir / "groom_episode_class_session_summary.md").write_text(
+        build_feedback_markdown(feedback_summary, cohort_label),
+        encoding="utf-8",
+    )
 
 
 def main() -> None:
@@ -410,13 +748,20 @@ def main() -> None:
     DOCS_ROOT.mkdir(parents=True, exist_ok=True)
 
     session_ids = sorted({path.name.split("_")[0] for path in INTERVALS_DIR.glob("*_layered_timeline.csv")})
-    metrics_df = pd.DataFrame([summarize_session(session_id) for session_id in session_ids])
+    session_results = [summarize_session(session_id) for session_id in session_ids]
+    metrics_df = pd.DataFrame([result[0] for result in session_results])
+    episode_tables = [result[1] for result in session_results if not result[1].empty]
+    episode_df = pd.concat(episode_tables, ignore_index=True) if episode_tables else pd.DataFrame()
     session_map = load_unblinding_map()
     metrics_df = session_map.merge(metrics_df, on="session_id", how="left")
+    if not episode_df.empty:
+        episode_df = session_map.merge(episode_df, on="session_id", how="left")
 
-    write_outputs(metrics_df, "full", "full session set")
+    write_outputs(metrics_df, episode_df, "full", "full session set")
+    write_outputs(metrics_df, episode_df, "quiet_mask", "quiet-mask sensitivity session set")
     filtered = metrics_df.loc[metrics_df["session_id"] != VET_ENTRY_SESSION_ID].reset_index(drop=True)
-    write_outputs(filtered, "exclude_vet_entry", "excluding known vet-entry session 596273")
+    filtered_episodes = episode_df.loc[episode_df["session_id"] != VET_ENTRY_SESSION_ID].reset_index(drop=True)
+    write_outputs(filtered, filtered_episodes, "exclude_vet_entry", "excluding known vet-entry session 596273")
 
 
 if __name__ == "__main__":

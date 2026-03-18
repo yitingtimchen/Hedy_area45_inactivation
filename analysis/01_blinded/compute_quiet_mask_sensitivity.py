@@ -10,6 +10,10 @@ ROOT = Path(__file__).resolve().parents[2]
 DERIVED_AUDIO_DIR = ROOT / "data" / "derived" / "audio"
 BLINDED_TABLES_DIR = ROOT / "results" / "blinded" / "tables"
 
+SMOOTH_WINDOW_BINS = 5
+MAX_QUIET_GAP_BINS = 2
+MIN_LOUD_RUN_BINS = 3
+
 
 def reciprocity_score(a: float, b: float) -> float | None:
     denom = a + b
@@ -24,6 +28,54 @@ def count_bouts(series: pd.Series, target: str) -> int:
         return 0
     starts = active & np.concatenate(([True], ~active[:-1]))
     return int(starts.sum())
+
+
+def _fill_short_false_gaps(mask: np.ndarray, max_gap: int) -> np.ndarray:
+    out = mask.copy()
+    n = len(out)
+    i = 0
+    while i < n:
+        if out[i]:
+            i += 1
+            continue
+        start = i
+        while i < n and not out[i]:
+            i += 1
+        end = i
+        if start > 0 and end < n and out[start - 1] and out[end] and (end - start) <= max_gap:
+            out[start:end] = True
+    return out
+
+
+def _remove_short_true_runs(mask: np.ndarray, min_run: int) -> np.ndarray:
+    out = mask.copy()
+    n = len(out)
+    i = 0
+    while i < n:
+        if not out[i]:
+            i += 1
+            continue
+        start = i
+        while i < n and out[i]:
+            i += 1
+        end = i
+        if (end - start) < min_run:
+            out[start:end] = False
+    return out
+
+
+def compute_smoothed_loud_mask(group: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, float]:
+    smoothed_rms = (
+        group["rms_dbfs"]
+        .rolling(window=SMOOTH_WINDOW_BINS, center=True, min_periods=1)
+        .mean()
+        .to_numpy(dtype=float)
+    )
+    threshold = float(np.quantile(smoothed_rms, 0.90))
+    loud_mask = smoothed_rms >= threshold
+    loud_mask = _fill_short_false_gaps(loud_mask, MAX_QUIET_GAP_BINS)
+    loud_mask = _remove_short_true_runs(loud_mask, MIN_LOUD_RUN_BINS)
+    return loud_mask, smoothed_rms, threshold
 
 
 def summarize_subset(session_id: str, subset_name: str, subset: pd.DataFrame) -> dict[str, object]:
@@ -88,8 +140,8 @@ def main() -> None:
         group = group.sort_values("bin_start_s").reset_index(drop=True)
         rows.append(summarize_subset(str(session_id), "full_trimmed", group))
 
-        session_p90 = float(group["session_rms_dbfs_p90"].iloc[0])
-        quiet_mask = group["rms_dbfs"] < session_p90
+        loud_mask, _, _ = compute_smoothed_loud_mask(group)
+        quiet_mask = ~loud_mask
         quiet_subset = group.loc[quiet_mask].reset_index(drop=True)
         rows.append(summarize_subset(str(session_id), "quiet_masked_p90", quiet_subset))
 

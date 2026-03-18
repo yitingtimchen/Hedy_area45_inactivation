@@ -313,6 +313,7 @@ def main() -> None:
     full_session_df = session_map.merge(full_session_df, on="session_id", how="left").sort_values("date").reset_index(drop=True)
     full_matrix_df = pd.DataFrame(matrix_rows)
     write_outputs(full_session_df, full_matrix_df, "full", "full session set")
+    write_outputs(full_session_df, full_matrix_df, "quiet_mask", "quiet-mask sensitivity session set")
 
     filtered_session_df = full_session_df.loc[full_session_df["session_id"] != VET_ENTRY_SESSION_ID].reset_index(drop=True)
     filtered_matrix_df = full_matrix_df.loc[full_matrix_df["session_id"] != VET_ENTRY_SESSION_ID].reset_index(drop=True)
