@@ -124,6 +124,7 @@ def add_take_home(prs: Presentation) -> None:
             "Composite net grooming and reciprocity still show the clearest session-level condition effects.",
             "The new within-session follow-ups are mechanistic support: they help show how the shift unfolds, but they do not replace the component-first result.",
             "Those effects were robust across quiet-mask sensitivity, exclusion of the vet-entry session, and the separate within-condition slope checks over session order.",
+            "Straightforward nonsocial control labels also did not show a coherent DCZ-linked suppression pattern.",
             "Secondary and exploratory analyses still did not reveal an equally clear broad change in total social engagement or coarse transition structure.",
             "The current statistical inference is session-level within one dyad, so it should be framed as strong within-dataset evidence rather than broad population inference.",
         ],
@@ -230,6 +231,18 @@ def build_deck() -> None:
             "Full cohort: neither vehicle nor DCZ slope is clearly significant for net grooming or reciprocity.",
             "That makes simple session-order drift a weak explanation for the main grooming result.",
             "Exclude-vet cohort shows the same pattern.",
+        ],
+    )
+
+    add_picture_with_caption(
+        prs,
+        "Contextual Behavior Controls",
+        FULL_FIGURES / "contextual_behavior_session_summary.png",
+        [
+            "Straightforward nonsocial labels provide the closest in-repo control panel against a simple global suppression explanation.",
+            "Foraging and outside-attention shifts remain mixed rather than showing one clean DCZ-linked drop across all contextual behaviors.",
+            "That makes the main grooming exchange effect harder to explain as a purely global change in arousal or activity.",
+            "This control slide is interpretive context rather than a replacement for the locked session-level social endpoints.",
         ],
     )
 
