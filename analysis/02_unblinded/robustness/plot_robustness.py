@@ -21,6 +21,7 @@ from _plot_helpers import (  # noqa: E402
     paired_strip,
     style_axis,
 )
+from output_layout import results_figures_dir, results_tables_dir  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -94,11 +95,10 @@ def plot_temporal_metric(ax: plt.Axes, df: pd.DataFrame, metric: str, summary_ro
 
 
 def plot_temporal_panel(cohort_name: str, cohort_label: str) -> None:
-    tables_dir = UNBLINDED_ROOT / cohort_name / "tables"
-    figures_dir = UNBLINDED_ROOT / cohort_name / "figures"
-    figures_dir.mkdir(parents=True, exist_ok=True)
+    tables_dir = results_tables_dir(cohort_name, "single_value_core")
+    figures_dir = results_figures_dir(cohort_name, "across_session_temporal_dependence")
     decision = pd.read_csv(tables_dir / "unblinded_decision_table.csv", dtype={"session_id": str})
-    summary = pd.read_csv(tables_dir / "temporal_dependence_summary.csv").set_index("metric")
+    summary = pd.read_csv(results_tables_dir(cohort_name, "across_session_temporal_dependence") / "temporal_dependence_summary.csv").set_index("metric")
 
     fig, axes = plt.subplots(2, 2, figsize=(9.6, 7.2))
     axes_arr = axes.ravel()
@@ -193,9 +193,9 @@ def main() -> None:
     for cohort_name, cohort_label in COHORTS:
         plot_temporal_panel(cohort_name, cohort_label)
         if cohort_name == "quiet_mask":
-            tables_dir = UNBLINDED_ROOT / cohort_name / "tables"
+            tables_dir = results_tables_dir(cohort_name, "single_value_core")
             decision = pd.read_csv(tables_dir / "unblinded_decision_table.csv", dtype={"session_id": str})
-            plot_quiet_mask_supplementary(decision, UNBLINDED_ROOT / cohort_name / "figures", tables_dir)
+            plot_quiet_mask_supplementary(decision, results_figures_dir(cohort_name, "single_value_core"), tables_dir)
 
 
 if __name__ == "__main__":

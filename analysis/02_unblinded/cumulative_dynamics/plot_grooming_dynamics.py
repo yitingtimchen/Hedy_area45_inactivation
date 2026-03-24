@@ -21,6 +21,7 @@ from _plot_helpers import (  # noqa: E402
     round_up_abs_limit,
     style_axis,
 )
+from output_layout import results_figures_dir, results_tables_dir  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -38,7 +39,7 @@ def compute_timecourse_net_limit() -> float:
     max_abs = 0.0
     for cohort_name, _ in COHORTS:
         decision = pd.read_csv(
-            UNBLINDED_ROOT / cohort_name / "tables" / "unblinded_decision_table.csv",
+            results_tables_dir(cohort_name, "single_value_core") / "unblinded_decision_table.csv",
             dtype={"session_id": str},
         )
         timecourse = pd.read_csv(BLINDED_TABLES_DIR / "blinded_grooming_timecourse.csv", dtype={"session_id": str})
@@ -127,9 +128,8 @@ def plot_grooming_dynamics(decision: pd.DataFrame, figures_dir: Path, cohort_lab
 def main() -> None:
     net_limit = compute_timecourse_net_limit()
     for cohort_name, cohort_label in COHORTS:
-        tables_dir = UNBLINDED_ROOT / cohort_name / "tables"
-        figures_dir = UNBLINDED_ROOT / cohort_name / "figures"
-        figures_dir.mkdir(parents=True, exist_ok=True)
+        tables_dir = results_tables_dir(cohort_name, "single_value_core")
+        figures_dir = results_figures_dir(cohort_name, "within_session_dynamics_minutes")
         decision = pd.read_csv(tables_dir / "unblinded_decision_table.csv", dtype={"session_id": str})
         plot_grooming_dynamics(decision, figures_dir, cohort_label, net_limit)
 

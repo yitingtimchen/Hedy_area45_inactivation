@@ -6,6 +6,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from output_layout import docs_section_dir, results_tables_dir
+
 
 ROOT = Path(__file__).resolve().parents[2]
 UNBLINDED_ROOT = ROOT / "results" / "unblinded"
@@ -150,11 +152,10 @@ def build_markdown(summary: pd.DataFrame, cohort_label: str) -> str:
 
 def main() -> None:
     for cohort_name, cohort_label in COHORTS:
-        tables_dir = UNBLINDED_ROOT / cohort_name / "tables"
-        docs_dir = DOCS_ROOT / cohort_name
-        docs_dir.mkdir(parents=True, exist_ok=True)
+        tables_dir = results_tables_dir(cohort_name, "across_session_temporal_dependence")
+        docs_dir = docs_section_dir(cohort_name, "across_session_temporal_dependence")
 
-        decision = pd.read_csv(tables_dir / "unblinded_decision_table.csv", dtype={"session_id": str})
+        decision = pd.read_csv(results_tables_dir(cohort_name, "single_value_core") / "unblinded_decision_table.csv", dtype={"session_id": str})
         summary = pd.DataFrame([analyze_metric(decision, metric) for metric in PRIMARY_METRICS])
         summary.to_csv(tables_dir / "temporal_dependence_summary.csv", index=False)
         markdown = build_markdown(summary, cohort_label)

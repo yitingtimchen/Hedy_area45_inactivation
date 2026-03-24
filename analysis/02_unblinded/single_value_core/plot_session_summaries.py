@@ -11,6 +11,7 @@ if str(PARENT) not in sys.path:
     sys.path.insert(0, str(PARENT))
 
 from _plot_helpers import paired_strip  # noqa: E402
+from output_layout import results_figures_dir, results_tables_dir  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -54,6 +55,26 @@ def plot_groom_bout_session_summary(decision: pd.DataFrame, bout_component_stats
     fig.suptitle(f"Groom bout session summaries: {cohort_label}", fontsize=13, x=0.06, ha="left")
     fig.tight_layout(rect=(0, 0, 1, 0.92), w_pad=0.8)
     fig.savefig(figures_dir / "groom_bout_session_summary.png", dpi=220, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_groom_bout_duration_summary(decision: pd.DataFrame, bout_duration_stats: pd.DataFrame, figures_dir: Path, cohort_label: str) -> None:
+    fig, axes = plt.subplots(2, 3, figsize=(9.4, 6.3))
+    specs = [
+        ("groom_give_bout_mean_duration_s", "Seconds", "Mean groom-give bout duration"),
+        ("groom_receive_bout_mean_duration_s", "Seconds", "Mean groom-receive bout duration"),
+        ("groom_total_bout_mean_duration_s", "Seconds", "Mean total grooming bout duration"),
+        ("groom_give_bout_median_duration_s", "Seconds", "Median groom-give bout duration"),
+        ("groom_receive_bout_median_duration_s", "Seconds", "Median groom-receive bout duration"),
+        ("groom_total_bout_median_duration_s", "Seconds", "Median total grooming bout duration"),
+    ]
+    for ax, (metric, ylabel, title) in zip(axes.ravel(), specs):
+        p_value = float(bout_duration_stats.loc[bout_duration_stats["metric"] == metric, "exact_permutation_p_two_sided"].iloc[0])
+        paired_strip(ax, decision, metric, ylabel, title, p_value)
+
+    fig.suptitle(f"Groom bout duration summaries: {cohort_label}", fontsize=13, x=0.06, ha="left")
+    fig.tight_layout(rect=(0, 0, 1, 0.94), w_pad=0.9, h_pad=1.0)
+    fig.savefig(figures_dir / "groom_bout_duration_session_summary.png", dpi=220, bbox_inches="tight")
     plt.close(fig)
 
 
@@ -145,20 +166,21 @@ def plot_exploratory_panel(exploratory: pd.DataFrame, exploratory_stats: pd.Data
 
 def main() -> None:
     for cohort_name, cohort_label in COHORTS:
-        tables_dir = UNBLINDED_ROOT / cohort_name / "tables"
-        figures_dir = UNBLINDED_ROOT / cohort_name / "figures"
-        figures_dir.mkdir(parents=True, exist_ok=True)
+        tables_dir = results_tables_dir(cohort_name, "single_value_core")
+        figures_dir = results_figures_dir(cohort_name, "single_value_core")
 
         decision = pd.read_csv(tables_dir / "unblinded_decision_table.csv", dtype={"session_id": str})
         exploratory = pd.read_csv(tables_dir / "unblinded_exploratory_nonsocial_table.csv", dtype={"session_id": str})
         component_stats = pd.read_csv(tables_dir / "condition_comparison_groom_components.csv")
         bout_component_stats = pd.read_csv(tables_dir / "condition_comparison_groom_bout_components.csv")
+        bout_duration_stats = pd.read_csv(tables_dir / "condition_comparison_groom_bout_durations.csv")
         primary_stats = pd.read_csv(tables_dir / "condition_comparison_primary.csv")
         secondary_stats = pd.read_csv(tables_dir / "condition_comparison_secondary.csv")
         exploratory_stats = pd.read_csv(tables_dir / "condition_comparison_exploratory.csv")
 
         plot_raw_session_summary(decision, component_stats, figures_dir, cohort_label)
         plot_groom_bout_session_summary(decision, bout_component_stats, figures_dir, cohort_label)
+        plot_groom_bout_duration_summary(decision, bout_duration_stats, figures_dir, cohort_label)
         plot_composite_session_summary(decision, primary_stats, figures_dir, cohort_label)
         plot_groom_bout_composite_summary(decision, secondary_stats, figures_dir, cohort_label)
         plot_exploratory_panel(exploratory, exploratory_stats, figures_dir, cohort_label)

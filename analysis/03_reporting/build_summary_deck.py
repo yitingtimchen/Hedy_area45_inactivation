@@ -7,12 +7,22 @@ from pptx import Presentation
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.util import Inches, Pt
 
+UNBLINDED_ANALYSIS = Path(__file__).resolve().parents[1] / "02_unblinded"
+import sys
+if str(UNBLINDED_ANALYSIS) not in sys.path:
+    sys.path.insert(0, str(UNBLINDED_ANALYSIS))
+
+from output_layout import results_figures_dir, results_tables_dir  # noqa: E402
+
 
 ROOT = Path(__file__).resolve().parents[2]
-FULL_FIGURES = ROOT / "results" / "unblinded" / "full" / "figures"
-QUIET_FIGURES = ROOT / "results" / "unblinded" / "quiet_mask" / "figures"
-EXCL_FIGURES = ROOT / "results" / "unblinded" / "exclude_vet_entry" / "figures"
-FULL_TABLES = ROOT / "results" / "unblinded" / "full" / "tables"
+FULL_CORE_FIGURES = results_figures_dir("full", "single_value_core")
+QUIET_CORE_FIGURES = results_figures_dir("quiet_mask", "single_value_core")
+EXCL_CORE_FIGURES = results_figures_dir("exclude_vet_entry", "single_value_core")
+FULL_CORE_TABLES = results_tables_dir("full", "single_value_core")
+FULL_DYNAMICS_FIGURES = results_figures_dir("full", "within_session_dynamics_minutes")
+FULL_TEMPORAL_FIGURES = results_figures_dir("full", "across_session_temporal_dependence")
+FULL_MECH_FIGURES = results_figures_dir("full", "mechanistic_followups")
 OUT_DIR = ROOT / "results" / "slides"
 OUT_PATH = OUT_DIR / "Hedy_area45_inactivation_summary.pptx"
 
@@ -115,7 +125,7 @@ def summarize_component_story(path: Path) -> str:
 
 
 def add_take_home(prs: Presentation) -> None:
-    component_story = summarize_component_story(FULL_TABLES)
+    component_story = summarize_component_story(FULL_CORE_TABLES)
     add_title_and_content(
         prs,
         "Take-Home Points",
@@ -173,9 +183,9 @@ def build_deck() -> None:
     add_picture_with_caption(
         prs,
         "Raw Grooming Components",
-        FULL_FIGURES / "groom_duration_session_summary.png",
+        FULL_CORE_FIGURES / "groom_duration_session_summary.png",
         [
-            summarize_component_story(FULL_TABLES),
+            summarize_component_story(FULL_CORE_TABLES),
             "This is now the first interpretive step before discussing composite balance or reciprocity.",
             "Total grooming changed less clearly than the directional give-versus-receive decomposition.",
         ],
@@ -184,7 +194,7 @@ def build_deck() -> None:
     add_picture_with_caption(
         prs,
         "Primary Result",
-        FULL_FIGURES / "groom_composite_session_summary.png",
+        FULL_CORE_FIGURES / "groom_composite_session_summary.png",
         [
             "After inspecting the raw components, the composite metrics still show a clear shift toward more balanced grooming exchange.",
             "Net grooming shifted strongly toward zero under DCZ.",
@@ -197,7 +207,7 @@ def build_deck() -> None:
     add_picture_with_caption(
         prs,
         "Within-Session Grooming Dynamics",
-        FULL_FIGURES / "groom_duration_cumulative_dynamics.png",
+        FULL_DYNAMICS_FIGURES / "groom_duration_cumulative_dynamics.png",
         [
             "Condition-averaged cumulative traces show how grooming given, grooming received, and net grooming diverge over the course of a session.",
             "This panel is descriptive and is meant to support mechanism, not replace the session-level condition comparison.",
@@ -213,19 +223,19 @@ def build_deck() -> None:
             "Removing smoothed loud epochs from each session did not change the primary picture.",
             "Quiet-masked full cohort: net grooming p = 0.0014; reciprocity p = 0.0030.",
         ],
-        QUIET_FIGURES / "groom_composite_session_summary.png",
+        QUIET_CORE_FIGURES / "groom_composite_session_summary.png",
         "Exclude vet-entry session",
         [
             "Dropping session 596273 left the primary effect intact or slightly stronger.",
             "Exclude-vet cohort: net grooming p = 0.0017; reciprocity p = 0.0020.",
         ],
-        EXCL_FIGURES / "groom_composite_session_summary.png",
+        EXCL_CORE_FIGURES / "groom_composite_session_summary.png",
     )
 
     add_picture_with_caption(
         prs,
         "Temporal Dependence",
-        FULL_FIGURES / "temporal_dependence.png",
+        FULL_TEMPORAL_FIGURES / "temporal_dependence.png",
         [
             "The temporal check now asks whether vehicle and DCZ each show a significant within-condition slope over session order.",
             "Full cohort: neither vehicle nor DCZ slope is clearly significant for net grooming or reciprocity.",
@@ -237,7 +247,7 @@ def build_deck() -> None:
     add_picture_with_caption(
         prs,
         "Contextual Behavior Controls",
-        FULL_FIGURES / "contextual_behavior_session_summary.png",
+        FULL_CORE_FIGURES / "contextual_behavior_session_summary.png",
         [
             "Straightforward nonsocial labels provide the closest in-repo control panel against a simple global suppression explanation.",
             "Foraging and outside-attention shifts remain mixed rather than showing one clean DCZ-linked drop across all contextual behaviors.",
@@ -261,7 +271,7 @@ def build_deck() -> None:
     add_picture_with_caption(
         prs,
         "Supporting Visuals",
-        FULL_FIGURES / "groom_directional_followup.png",
+        FULL_MECH_FIGURES / "groom_directional_followup.png",
         [
             "This panel summarizes the directional grooming follow-up metrics.",
             "These measures ask whether same-episode reciprocation depends on whether grooming began with give or receive.",

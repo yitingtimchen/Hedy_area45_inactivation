@@ -16,6 +16,7 @@ if str(PARENT) not in sys.path:
     sys.path.insert(0, str(PARENT))
 
 from _plot_helpers import exact_slope_permutation_p, fit_line, p_style, style_axis  # noqa: E402
+from output_layout import docs_section_dir, results_figures_dir, results_tables_dir  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -555,12 +556,9 @@ def write_cohort_outputs(
     cohort_label: str,
     include_bouts: bool = True,
 ) -> None:
-    tables_dir = UNBLINDED_ROOT / cohort_name / "tables"
-    docs_dir = DOCS_ROOT / cohort_name
-    figures_dir = UNBLINDED_ROOT / cohort_name / "figures"
-    tables_dir.mkdir(parents=True, exist_ok=True)
-    docs_dir.mkdir(parents=True, exist_ok=True)
-    figures_dir.mkdir(parents=True, exist_ok=True)
+    tables_dir = results_tables_dir(cohort_name, "social_nonprecedence")
+    docs_dir = docs_section_dir(cohort_name, "social_nonprecedence")
+    figures_dir = results_figures_dir(cohort_name, "social_nonprecedence")
 
     metrics = [col for col in metrics_df.columns if col.endswith("_duration_pct_session")]
     if include_bouts:

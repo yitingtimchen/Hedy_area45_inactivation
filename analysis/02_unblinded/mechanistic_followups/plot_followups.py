@@ -12,6 +12,7 @@ if str(PARENT) not in sys.path:
     sys.path.insert(0, str(PARENT))
 
 from _plot_helpers import DCZ_COLOR, VEHICLE_COLOR, paired_strip, style_axis  # noqa: E402
+from output_layout import results_figures_dir, results_tables_dir  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -165,9 +166,8 @@ def plot_feedback_dynamics(session_df: pd.DataFrame, episode_df: pd.DataFrame, s
 
 def main() -> None:
     for cohort_name, cohort_label in COHORTS:
-        tables_dir = UNBLINDED_ROOT / cohort_name / "tables"
-        figures_dir = UNBLINDED_ROOT / cohort_name / "figures"
-        figures_dir.mkdir(parents=True, exist_ok=True)
+        tables_dir = results_tables_dir(cohort_name, "mechanistic_followups")
+        figures_dir = results_figures_dir(cohort_name, "mechanistic_followups")
 
         session_df = pd.read_csv(tables_dir / "groom_followup_metrics_by_session.csv", dtype={"session_id": str})
         summary = pd.read_csv(tables_dir / "groom_followup_condition_comparison.csv")

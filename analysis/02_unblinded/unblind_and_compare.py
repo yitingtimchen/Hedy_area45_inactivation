@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pandas as pd
 
+from output_layout import docs_section_dir, results_tables_dir
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DECISION_PATH = ROOT / "results" / "blinded" / "tables" / "blinded_decision_table.csv"
@@ -34,6 +36,15 @@ GROOM_BOUT_COMPONENT_METRICS = [
     "groom_total_resolved_bouts",
     "groom_bout_net_receive_minus_give",
     "groom_bout_reciprocity_0to1",
+]
+
+GROOM_BOUT_DURATION_METRICS = [
+    "groom_give_bout_mean_duration_s",
+    "groom_receive_bout_mean_duration_s",
+    "groom_total_bout_mean_duration_s",
+    "groom_give_bout_median_duration_s",
+    "groom_receive_bout_median_duration_s",
+    "groom_total_bout_median_duration_s",
 ]
 
 PRIMARY_METRICS = [
@@ -74,6 +85,12 @@ SUMMARY_LABELS = {
     "groom_give_resolved_bouts": "Groom give bouts per session",
     "groom_receive_resolved_bouts": "Groom receive bouts per session",
     "groom_total_resolved_bouts": "Total grooming bouts per session",
+    "groom_give_bout_mean_duration_s": "Mean groom-give bout duration (s)",
+    "groom_receive_bout_mean_duration_s": "Mean groom-receive bout duration (s)",
+    "groom_total_bout_mean_duration_s": "Mean total grooming bout duration (s)",
+    "groom_give_bout_median_duration_s": "Median groom-give bout duration (s)",
+    "groom_receive_bout_median_duration_s": "Median groom-receive bout duration (s)",
+    "groom_total_bout_median_duration_s": "Median total grooming bout duration (s)",
     "groom_duration_net_receive_minus_give_pct_session": "Net grooming (% session; receive - give)",
     "groom_duration_reciprocity_0to1": "Grooming reciprocity (0 to 1)",
     "groom_bout_net_receive_minus_give": "Net grooming bouts (receive - give)",
@@ -339,6 +356,36 @@ def build_groom_bout_markdown(bout_components: pd.DataFrame, secondary: pd.DataF
     return "\n".join(raw_lines), "\n".join(composite_lines)
 
 
+def build_groom_bout_duration_markdown(bout_durations: pd.DataFrame, n_vehicle: int, n_dcz: int, cohort_label: str) -> str:
+    lines = [
+        "# Groom Bout Duration Summary",
+        "",
+        f"Cohort: {cohort_label}.",
+        f"`DCZ` and `vehicle` groups contain `{n_dcz}` and `{n_vehicle}` sessions, respectively.",
+        "",
+        "## Mean bout duration",
+        "",
+    ]
+    for metric in [
+        "groom_give_bout_mean_duration_s",
+        "groom_receive_bout_mean_duration_s",
+        "groom_total_bout_mean_duration_s",
+    ]:
+        row = bout_durations.loc[bout_durations["metric"] == metric].iloc[0]
+        lines.append(format_summary_line(row, SUMMARY_LABELS[metric]))
+
+    lines.extend(["", "## Median bout duration", ""])
+    for metric in [
+        "groom_give_bout_median_duration_s",
+        "groom_receive_bout_median_duration_s",
+        "groom_total_bout_median_duration_s",
+    ]:
+        row = bout_durations.loc[bout_durations["metric"] == metric].iloc[0]
+        lines.append(format_summary_line(row, SUMMARY_LABELS[metric]))
+    lines.append("")
+    return "\n".join(lines)
+
+
 def build_quiet_mask_assumptions_markdown() -> str:
     lines = [
         "# Quiet-Mask Assumptions",
@@ -389,11 +436,11 @@ def build_composite_session_markdown(
 
 
 def cohort_tables_dir(cohort_name: str) -> Path:
-    return UNBLINDED_ROOT / cohort_name / "tables"
+    return results_tables_dir(cohort_name, "single_value_core")
 
 
 def cohort_docs_dir(cohort_name: str) -> Path:
-    return DOCS_ROOT / cohort_name
+    return docs_section_dir(cohort_name, "single_value_core")
 
 
 def write_analysis_set(
@@ -413,12 +460,14 @@ def write_analysis_set(
 
     component_summary = summarize_by_condition(decision_df, GROOM_COMPONENT_METRICS)
     bout_component_summary = summarize_by_condition(decision_df, GROOM_BOUT_COMPONENT_METRICS)
+    bout_duration_summary = summarize_by_condition(decision_df, GROOM_BOUT_DURATION_METRICS)
     primary_summary = summarize_by_condition(decision_df, PRIMARY_METRICS)
     secondary_summary = summarize_by_condition(decision_df, SECONDARY_METRICS)
     exploratory_summary = summarize_by_condition(exploratory_df, EXPLORATORY_METRICS)
 
     component_summary.to_csv(tables_dir / "condition_comparison_groom_components.csv", index=False)
     bout_component_summary.to_csv(tables_dir / "condition_comparison_groom_bout_components.csv", index=False)
+    bout_duration_summary.to_csv(tables_dir / "condition_comparison_groom_bout_durations.csv", index=False)
     primary_summary.to_csv(tables_dir / "condition_comparison_primary.csv", index=False)
     secondary_summary.to_csv(tables_dir / "condition_comparison_secondary.csv", index=False)
     sensitivity_summary = None
@@ -446,6 +495,10 @@ def write_analysis_set(
     )
     (docs_dir / "groom_bout_session_summary.md").write_text(raw_bout_markdown, encoding="utf-8")
     (docs_dir / "groom_bout_composite_session_summary.md").write_text(composite_bout_markdown, encoding="utf-8")
+    (docs_dir / "groom_bout_duration_session_summary.md").write_text(
+        build_groom_bout_duration_markdown(bout_duration_summary, n_vehicle, n_dcz, cohort_label),
+        encoding="utf-8",
+    )
     if sensitivity_summary is not None:
         (docs_dir / "quiet_mask_supplementary.md").write_text(
             build_composite_session_markdown(primary_summary, secondary_summary, n_vehicle, n_dcz, cohort_label, sensitivity_summary),
@@ -467,6 +520,12 @@ def build_quiet_mask_decision(full_decision: pd.DataFrame) -> pd.DataFrame:
     quiet["groom_give_resolved_bouts"] = quiet["groom_give_bouts_quiet_masked_p90"]
     quiet["groom_receive_resolved_bouts"] = quiet["groom_receive_bouts_quiet_masked_p90"]
     quiet["groom_total_resolved_bouts"] = quiet["groom_total_bouts_quiet_masked_p90"]
+    quiet["groom_give_bout_mean_duration_s"] = quiet["groom_give_bout_mean_duration_s_quiet_masked_p90"]
+    quiet["groom_receive_bout_mean_duration_s"] = quiet["groom_receive_bout_mean_duration_s_quiet_masked_p90"]
+    quiet["groom_total_bout_mean_duration_s"] = quiet["groom_total_bout_mean_duration_s_quiet_masked_p90"]
+    quiet["groom_give_bout_median_duration_s"] = quiet["groom_give_bout_median_duration_s_quiet_masked_p90"]
+    quiet["groom_receive_bout_median_duration_s"] = quiet["groom_receive_bout_median_duration_s_quiet_masked_p90"]
+    quiet["groom_total_bout_median_duration_s"] = quiet["groom_total_bout_median_duration_s_quiet_masked_p90"]
     quiet["groom_duration_net_receive_minus_give_pct_session"] = quiet["groom_duration_net_receive_minus_give_pct_quiet_masked_p90"]
     quiet["groom_bout_net_receive_minus_give"] = quiet["groom_bout_net_receive_minus_give_quiet_masked_p90"]
     quiet["groom_duration_reciprocity_0to1"] = quiet["groom_duration_reciprocity_0to1_quiet_masked_p90"]

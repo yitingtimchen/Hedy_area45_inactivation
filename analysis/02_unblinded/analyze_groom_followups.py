@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pandas as pd
 
+from output_layout import docs_section_dir, results_tables_dir
+
 
 ROOT = Path(__file__).resolve().parents[2]
 INTERVALS_DIR = ROOT / "data" / "derived" / "behavior" / "cleaned_intervals"
@@ -682,10 +684,8 @@ def build_feedback_markdown(summary: pd.DataFrame, cohort_label: str) -> str:
 
 
 def write_outputs(metrics_df: pd.DataFrame, episode_df: pd.DataFrame, cohort_name: str, cohort_label: str) -> None:
-    tables_dir = UNBLINDED_ROOT / cohort_name / "tables"
-    docs_dir = DOCS_ROOT / cohort_name
-    tables_dir.mkdir(parents=True, exist_ok=True)
-    docs_dir.mkdir(parents=True, exist_ok=True)
+    tables_dir = results_tables_dir(cohort_name, "mechanistic_followups")
+    docs_dir = docs_section_dir(cohort_name, "mechanistic_followups")
 
     metrics_df.to_csv(tables_dir / "groom_followup_metrics_by_session.csv", index=False)
     summary = compare_conditions(

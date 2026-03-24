@@ -9,6 +9,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pandas as pd
 
+from output_layout import docs_section_dir, results_figures_dir, results_tables_dir
+
 
 ROOT = Path(__file__).resolve().parents[3]
 INTERVALS_DIR = ROOT / "data" / "derived" / "behavior" / "cleaned_intervals"
@@ -75,12 +77,9 @@ def load_unblinding_map() -> pd.DataFrame:
 
 
 def ensure_full_output_dirs() -> tuple[Path, Path, Path]:
-    tables_dir = UNBLINDED_ROOT / "full" / "tables"
-    figures_dir = UNBLINDED_ROOT / "full" / "figures"
-    docs_dir = DOCS_ROOT / "full"
-    tables_dir.mkdir(parents=True, exist_ok=True)
-    figures_dir.mkdir(parents=True, exist_ok=True)
-    docs_dir.mkdir(parents=True, exist_ok=True)
+    tables_dir = results_tables_dir("full", "naturalistic_followups")
+    figures_dir = results_figures_dir("full", "naturalistic_followups")
+    docs_dir = docs_section_dir("full", "naturalistic_followups")
     return tables_dir, figures_dir, docs_dir
 
 

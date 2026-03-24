@@ -6,9 +6,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+UNBLINDED_ANALYSIS = Path(__file__).resolve().parents[1] / "02_unblinded"
+import sys
+if str(UNBLINDED_ANALYSIS) not in sys.path:
+    sys.path.insert(0, str(UNBLINDED_ANALYSIS))
+
+from output_layout import results_tables_dir  # noqa: E402
+
 
 ROOT = Path(__file__).resolve().parents[2]
-UNBLINDED_ROOT = ROOT / "results" / "unblinded"
 OUT_DIR = ROOT / "results" / "slides" / "assets"
 
 VEHICLE_COLOR = "#A9B7C9"
@@ -117,7 +123,7 @@ def robustness_rows() -> list[dict[str, object]]:
     variants = [
         (
             "Full",
-            UNBLINDED_ROOT / "full" / "tables" / "condition_comparison_primary.csv",
+            results_tables_dir("full", "single_value_core") / "condition_comparison_primary.csv",
             {
                 "groom_duration_net_receive_minus_give_pct_session": "groom_duration_net_receive_minus_give_pct_session",
                 "groom_duration_reciprocity_0to1": "groom_duration_reciprocity_0to1",
@@ -125,7 +131,7 @@ def robustness_rows() -> list[dict[str, object]]:
         ),
         (
             "Quiet mask",
-            UNBLINDED_ROOT / "quiet_mask" / "tables" / "condition_comparison_primary.csv",
+            results_tables_dir("quiet_mask", "single_value_core") / "condition_comparison_primary.csv",
             {
                 "groom_duration_net_receive_minus_give_pct_session": "groom_duration_net_receive_minus_give_pct_session",
                 "groom_duration_reciprocity_0to1": "groom_duration_reciprocity_0to1",
@@ -133,7 +139,7 @@ def robustness_rows() -> list[dict[str, object]]:
         ),
         (
             "Exclude vet",
-            UNBLINDED_ROOT / "exclude_vet_entry" / "tables" / "condition_comparison_primary.csv",
+            results_tables_dir("exclude_vet_entry", "single_value_core") / "condition_comparison_primary.csv",
             {
                 "groom_duration_net_receive_minus_give_pct_session": "groom_duration_net_receive_minus_give_pct_session",
                 "groom_duration_reciprocity_0to1": "groom_duration_reciprocity_0to1",
@@ -141,7 +147,7 @@ def robustness_rows() -> list[dict[str, object]]:
         ),
         (
             "Exclude vet + quiet mask",
-            UNBLINDED_ROOT / "exclude_vet_entry" / "tables" / "condition_comparison_quiet_mask_sensitivity.csv",
+            results_tables_dir("exclude_vet_entry", "single_value_core") / "condition_comparison_quiet_mask_sensitivity.csv",
             {
                 "groom_duration_net_receive_minus_give_pct_session": "groom_duration_net_receive_minus_give_pct_quiet_masked_p90",
                 "groom_duration_reciprocity_0to1": "groom_duration_reciprocity_0to1_quiet_masked_p90",
@@ -360,10 +366,10 @@ def plot_temporal_dependence(decision: pd.DataFrame, temporal_summary: pd.DataFr
 def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    decision = pd.read_csv(UNBLINDED_ROOT / "full" / "tables" / "unblinded_decision_table.csv", dtype={"session_id": str})
-    primary_stats = pd.read_csv(UNBLINDED_ROOT / "full" / "tables" / "condition_comparison_primary.csv")
-    secondary_stats = pd.read_csv(UNBLINDED_ROOT / "full" / "tables" / "condition_comparison_secondary.csv")
-    temporal_summary = pd.read_csv(UNBLINDED_ROOT / "full" / "tables" / "temporal_dependence_summary.csv")
+    decision = pd.read_csv(results_tables_dir("full", "single_value_core") / "unblinded_decision_table.csv", dtype={"session_id": str})
+    primary_stats = pd.read_csv(results_tables_dir("full", "single_value_core") / "condition_comparison_primary.csv")
+    secondary_stats = pd.read_csv(results_tables_dir("full", "single_value_core") / "condition_comparison_secondary.csv")
+    temporal_summary = pd.read_csv(results_tables_dir("full", "across_session_temporal_dependence") / "temporal_dependence_summary.csv")
 
     plot_primary_single_metric(
         decision,
