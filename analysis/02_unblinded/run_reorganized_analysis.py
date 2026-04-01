@@ -15,6 +15,7 @@ SCRIPTS = [
     ROOT / "raw_total_duration" / "plot_raw_total_duration.py",
     ROOT / "arousal_controls" / "plot_arousal_controls.py",
     ROOT / "loud_only_stress_plots.py",
+    ROOT / "analyze_ethogram_overview.py",
     ROOT / "organize_existing_outputs.py",
 ]
 AGGREGATION_MODES = [

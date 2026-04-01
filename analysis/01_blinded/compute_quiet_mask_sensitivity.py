@@ -30,6 +30,22 @@ def count_bouts(series: pd.Series, target: str) -> int:
     return int(starts.sum())
 
 
+def bout_lengths_seconds(series: pd.Series, target: str) -> list[int]:
+    active = series.eq(target).fillna(False).to_numpy(dtype=bool)
+    lengths: list[int] = []
+    n = len(active)
+    i = 0
+    while i < n:
+        if not active[i]:
+            i += 1
+            continue
+        start = i
+        while i < n and active[i]:
+            i += 1
+        lengths.append(i - start)
+    return lengths
+
+
 def _fill_short_false_gaps(mask: np.ndarray, max_gap: int) -> np.ndarray:
     out = mask.copy()
     n = len(out)
@@ -86,6 +102,10 @@ def summarize_subset(session_id: str, subset_name: str, subset: pd.DataFrame) ->
     total_groom_seconds = give_seconds + receive_seconds
     give_bouts = count_bouts(subset["social_state"], "Groom give")
     receive_bouts = count_bouts(subset["social_state"], "Groom receive")
+    total_groom_bouts = give_bouts + receive_bouts
+    give_lengths = bout_lengths_seconds(subset["social_state"], "Groom give")
+    receive_lengths = bout_lengths_seconds(subset["social_state"], "Groom receive")
+    total_lengths = give_lengths + receive_lengths
 
     return {
         "session_id": session_id,
@@ -100,6 +120,13 @@ def summarize_subset(session_id: str, subset_name: str, subset: pd.DataFrame) ->
         "groom_duration_reciprocity_0to1": reciprocity_score(receive_seconds, give_seconds),
         "groom_give_bouts": give_bouts,
         "groom_receive_bouts": receive_bouts,
+        "groom_total_bouts": total_groom_bouts,
+        "groom_give_bout_mean_duration_s": give_seconds / give_bouts if give_bouts else np.nan,
+        "groom_receive_bout_mean_duration_s": receive_seconds / receive_bouts if receive_bouts else np.nan,
+        "groom_total_bout_mean_duration_s": total_groom_seconds / total_groom_bouts if total_groom_bouts else np.nan,
+        "groom_give_bout_median_duration_s": float(np.median(give_lengths)) if give_lengths else np.nan,
+        "groom_receive_bout_median_duration_s": float(np.median(receive_lengths)) if receive_lengths else np.nan,
+        "groom_total_bout_median_duration_s": float(np.median(total_lengths)) if total_lengths else np.nan,
         "groom_bout_net_receive_minus_give": receive_bouts - give_bouts,
         "groom_bout_reciprocity_0to1": reciprocity_score(receive_bouts, give_bouts),
         "groom_give_bouts_per_hour": give_bouts / hours if hours and not np.isnan(hours) else np.nan,

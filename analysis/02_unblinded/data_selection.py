@@ -27,6 +27,26 @@ NS = {"a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
 LOUD_STRESS_SOCIAL = {"Aggressive vocal", "Enlist/Recruit", "Cage-shake display"}
 LOUD_STRESS_ACTIVITY = {"Chew non-food", "Object manipulate", "Pace"}
+INTERVALS_DIR = ROOT / "data" / "derived" / "behavior" / "cleaned_intervals"
+
+FAMILY_COMPONENTS = {
+    "feeding": ["Drink", "Eat", "Forage/Search"],
+    "locomotion": ["Travel"],
+    "attention": ["Attention to outside agents", "Vigilant/Scan"],
+    "maintenance": ["Rest/Stationary", "Scratch", "Self-groom", "Stretch", "Urinate"],
+}
+CATEGORY_TO_FAMILY = {
+    "Affiliative": "affiliative",
+    "Aggression": "aggressive",
+    "Sexual": "sexual",
+    "Feeding": "feeding",
+    "Locomotion": "locomotion",
+    "Attention": "attention",
+    "Maintenance": "maintenance",
+    "Atypical": "atypical",
+    "Other": "atypical",
+    "Unscored": "unscored",
+}
 
 
 def load_xlsx_sheet_rows(path: Path) -> pd.DataFrame:
@@ -77,8 +97,43 @@ def load_unblinding_map() -> pd.DataFrame:
     return session_map
 
 
+def load_behavior_category_map() -> pd.DataFrame:
+    rows: list[pd.DataFrame] = []
+    for path in sorted(INTERVALS_DIR.glob("*_behavior_intervals.csv")):
+        df = pd.read_csv(path, usecols=["behavior", "category"])
+        rows.append(df.dropna(subset=["behavior"]).drop_duplicates())
+    if not rows:
+        return pd.DataFrame(columns=["behavior", "category"])
+    return (
+        pd.concat(rows, ignore_index=True)
+        .drop_duplicates()
+        .sort_values(["category", "behavior"])
+        .reset_index(drop=True)
+    )
+
+
+def behavior_category_lookup() -> dict[str, str]:
+    category_map = load_behavior_category_map()
+    lookup = dict(zip(category_map["behavior"], category_map["category"]))
+    lookup["Unscored"] = "Unscored"
+    return lookup
+
+
+def assign_primary_behavior(row: pd.Series) -> str:
+    if pd.notna(row["social_state"]) and str(row["social_state"]) != "":
+        return str(row["social_state"])
+    if pd.notna(row["activity_state"]) and str(row["activity_state"]) != "":
+        return str(row["activity_state"])
+    if pd.notna(row["attention_state"]) and str(row["attention_state"]) != "":
+        return str(row["attention_state"])
+    if pd.notna(row["atypical_state"]) and str(row["atypical_state"]) != "":
+        return str(row["atypical_state"])
+    return "Unscored"
+
+
 def _audio_selection_summaries() -> pd.DataFrame:
     audio = pd.read_csv(DERIVED_AUDIO, dtype={"session_id": str})
+    category_lookup = behavior_category_lookup()
     rows: list[dict[str, object]] = []
     for session_id, group in audio.groupby("session_id", sort=False):
         ordered = group.sort_values("bin_start_s").reset_index(drop=True)
@@ -93,6 +148,12 @@ def _audio_selection_summaries() -> pd.DataFrame:
         for selection_name, mask in selections.items():
             sub = ordered.loc[mask].copy()
             duration_s = float(sub["bin_duration_s"].sum())
+            if sub.empty:
+                primary_behavior = pd.Series(dtype=object)
+                primary_family = pd.Series(dtype=object)
+            else:
+                primary_behavior = sub.apply(assign_primary_behavior, axis=1)
+                primary_family = primary_behavior.map(category_lookup).fillna("Other").map(CATEGORY_TO_FAMILY).fillna("atypical")
             forage_s = float(sub["activity_state"].eq("Forage/Search").sum())
             travel_s = float(sub["activity_state"].eq("Travel").sum())
             rest_s = float(sub["activity_state"].eq("Rest/Stationary").sum())
@@ -121,6 +182,21 @@ def _audio_selection_summaries() -> pd.DataFrame:
             row[f"hiccups_pct__{selection_name}"] = 100.0 * hiccups_s / duration_s if duration_s > 0 else np.nan
             row[f"loud_stress_composite_duration_s__{selection_name}"] = stress_s
             row[f"loud_stress_composite_pct__{selection_name}"] = 100.0 * stress_s / duration_s if duration_s > 0 else np.nan
+            for family_name, components in FAMILY_COMPONENTS.items():
+                family_duration = float(sub.loc[primary_family == family_name, "bin_duration_s"].sum())
+                row[f"{family_name}_duration_s__{selection_name}"] = family_duration
+                row[f"{family_name}_pct__{selection_name}"] = 100.0 * family_duration / duration_s if duration_s > 0 else np.nan
+                for behavior in components:
+                    metric_stem = (
+                        behavior.lower()
+                        .replace("/", "_")
+                        .replace(" ", "_")
+                        .replace("-", "_")
+                        .replace("__", "_")
+                    )
+                    behavior_duration = float(sub.loc[primary_behavior == behavior, "bin_duration_s"].sum())
+                    row[f"{metric_stem}_duration_s__{selection_name}"] = behavior_duration
+                    row[f"{metric_stem}_pct__{selection_name}"] = 100.0 * behavior_duration / duration_s if duration_s > 0 else np.nan
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -226,6 +302,26 @@ def _build_base_table() -> pd.DataFrame:
     base["loud_stress_composite_duration_s"] = base["loud_stress_composite_duration_s__full"]
     base["loud_stress_composite_duration_s_quiet"] = base["loud_stress_composite_duration_s__exclude_smoothed_loud_epochs"]
     base["loud_stress_composite_duration_s_loud"] = base["loud_stress_composite_duration_s__include_smoothed_loud_epochs_only"]
+    for stem in [
+        "feeding",
+        "locomotion",
+        "attention",
+        "maintenance",
+        "drink",
+        "eat",
+        "forage_search",
+        "travel",
+        "attention_to_outside_agents",
+        "vigilant_scan",
+        "rest_stationary",
+        "scratch",
+        "self_groom",
+        "stretch",
+        "urinate",
+    ]:
+        base[f"{stem}_duration_s"] = base[f"{stem}_duration_s__full"]
+        base[f"{stem}_duration_s_quiet"] = base[f"{stem}_duration_s__exclude_smoothed_loud_epochs"]
+        base[f"{stem}_duration_s_loud"] = base[f"{stem}_duration_s__include_smoothed_loud_epochs_only"]
 
     return base
 
@@ -272,6 +368,24 @@ def build_branch_table(selection: str) -> pd.DataFrame:
     df["attention_outside_duration_s_selected"] = _resolve_duration(base, "attention_outside_duration_s", selection)
     df["hiccups_duration_s_selected"] = _resolve_duration(base, "hiccups_duration_s", selection)
     df["loud_stress_composite_duration_s_selected"] = _resolve_duration(base, "loud_stress_composite_duration_s", selection)
+    for stem in [
+        "feeding",
+        "locomotion",
+        "attention",
+        "maintenance",
+        "drink",
+        "eat",
+        "forage_search",
+        "travel",
+        "attention_to_outside_agents",
+        "vigilant_scan",
+        "rest_stationary",
+        "scratch",
+        "self_groom",
+        "stretch",
+        "urinate",
+    ]:
+        df[f"{stem}_duration_s_selected"] = _resolve_duration(base, f"{stem}_duration_s", selection)
 
     pct_specs = [
         ("groom_give_pct_selected", "groom_give_duration_s_selected"),
@@ -288,6 +402,16 @@ def build_branch_table(selection: str) -> pd.DataFrame:
         ("attention_outside_pct_selected", "attention_outside_duration_s_selected"),
         ("hiccups_pct_selected", "hiccups_duration_s_selected"),
         ("loud_stress_composite_pct_selected", "loud_stress_composite_duration_s_selected"),
+        ("feeding_pct_selected", "feeding_duration_s_selected"),
+        ("locomotion_pct_selected", "locomotion_duration_s_selected"),
+        ("attention_pct_selected", "attention_duration_s_selected"),
+        ("maintenance_pct_selected", "maintenance_duration_s_selected"),
+        ("drink_pct_selected", "drink_duration_s_selected"),
+        ("eat_pct_selected", "eat_duration_s_selected"),
+        ("attention_to_outside_agents_pct_selected", "attention_to_outside_agents_duration_s_selected"),
+        ("self_groom_pct_selected", "self_groom_duration_s_selected"),
+        ("stretch_pct_selected", "stretch_duration_s_selected"),
+        ("urinate_pct_selected", "urinate_duration_s_selected"),
     ]
     for out_col, duration_col in pct_specs:
         df[out_col] = np.where(duration_s > 0, 100.0 * df[duration_col] / duration_s, np.nan)

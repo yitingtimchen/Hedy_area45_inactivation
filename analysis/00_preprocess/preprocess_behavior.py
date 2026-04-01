@@ -418,6 +418,9 @@ def summarize_session(
         [state_intervals_from_timeline(timeline, layer) for layer in LAYER_ORDER],
         ignore_index=True,
     )
+    groom_intervals = resolved_intervals.loc[resolved_intervals["behavior"].isin(["Groom give", "Groom receive"])].copy()
+    give_intervals = groom_intervals.loc[groom_intervals["behavior"] == "Groom give"]
+    receive_intervals = groom_intervals.loc[groom_intervals["behavior"] == "Groom receive"]
     duration_by_behavior = resolved_intervals.groupby("behavior")["duration_s"].sum()
     bouts_by_behavior = resolved_intervals.groupby("behavior").size()
     raw_duration_by_behavior = raw_intervals.groupby("behavior")["duration_s"].sum()
@@ -445,7 +448,14 @@ def summarize_session(
     summary["groom_total_pct_session"] = 100.0 * total_groom_s / window.duration_s
     summary["groom_give_bouts_per_hour"] = give_bouts / (window.duration_s / 3600.0)
     summary["groom_receive_bouts_per_hour"] = receive_bouts / (window.duration_s / 3600.0)
+    summary["groom_total_resolved_bouts"] = total_groom_bouts
     summary["groom_total_bouts_per_hour"] = total_groom_bouts / (window.duration_s / 3600.0)
+    summary["groom_give_bout_mean_duration_s"] = give_s / give_bouts if give_bouts > 0 else np.nan
+    summary["groom_receive_bout_mean_duration_s"] = receive_s / receive_bouts if receive_bouts > 0 else np.nan
+    summary["groom_total_bout_mean_duration_s"] = total_groom_s / total_groom_bouts if total_groom_bouts > 0 else np.nan
+    summary["groom_give_bout_median_duration_s"] = float(give_intervals["duration_s"].median()) if not give_intervals.empty else np.nan
+    summary["groom_receive_bout_median_duration_s"] = float(receive_intervals["duration_s"].median()) if not receive_intervals.empty else np.nan
+    summary["groom_total_bout_median_duration_s"] = float(groom_intervals["duration_s"].median()) if not groom_intervals.empty else np.nan
     summary["groom_duration_net_receive_minus_give_s"] = receive_s - give_s
     summary["groom_duration_net_receive_minus_give_pct_session"] = 100.0 * (receive_s - give_s) / window.duration_s
     summary["groom_bout_net_receive_minus_give"] = receive_bouts - give_bouts
