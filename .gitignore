@@ -10,6 +10,10 @@ results/
 data/raw/videos/
 data/raw/videos_720p/
 data/raw/video_samples/
+data/raw/surgery_photos/Hedy_surgery_photos/**/*.jpg
+data/raw/surgery_photos/Hedy_surgery_photos/**/*.jpeg
+data/raw/surgery_photos/Hedy_surgery_photos/**/*.JPG
+data/raw/surgery_photos/Hedy_surgery_photos/**/*.JPEG
 
 # Local environment files
 .DS_Store

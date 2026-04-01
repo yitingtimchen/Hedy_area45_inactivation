@@ -9,6 +9,7 @@ Analysis workspace for a blinded behavioral study of DREADD inactivation of Area
 - `analysis/02_unblinded/`: unblinding, condition-comparison, transition, and plotting scripts.
 - `analysis/utils/`: supporting metadata such as exception notes.
 - `data/raw/`: source BORIS tables, videos, ethogram files, and the session key.
+- `data/raw/surgery_photos/`: local surgery photo archive plus a tracked manifest of filenames and timestamps.
 - `data/derived/`: regenerated intermediate products such as cleaned timelines and per-second audio features.
 - `results/blinded/`: blinded tables and figures used to lock the analysis plan.
 - `results/unblinded/full/`: canonical unblinded tables and figures using all sessions.
@@ -16,6 +17,7 @@ Analysis workspace for a blinded behavioral study of DREADD inactivation of Area
 - `results/unblinded/session_unblinding_key.csv`: shared session-to-condition mapping used by both unblinded cohorts.
 - `docs/unblinded/full/` and `docs/unblinded/exclude_vet_entry/`: matching narrative summaries for the two unblinded cohorts.
 - `docs/`: analysis decisions, sensitivity writeups, and result summaries.
+- `docs/surgery/`: structured surgery metadata and source-material references.
 
 ## Current Workflow
 
